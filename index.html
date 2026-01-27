@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hito Farm Realtime Monitoring</title>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body {
+      background-color: #0f172a;
+      font-family: Arial, sans-serif;
+      color: white;
+      padding: 20px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    .container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+
+    .card {
+      background: #020617;
+      border-radius: 12px;
+      padding: 20px;
+      width: 240px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.4);
+    }
+
+    .card h2 {
+      font-size: 18px;
+      margin: 0;
+      color: #94a3b8;
+    }
+
+    .value {
+      font-size: 32px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    .status {
+      color: #22c55e;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>🌊 Hito Farm Realtime Dashboard</h1>
+
+  <div class="container">
+
+    <div class="card">
+      <h2>pH Level</h2>
+      <div class="value" id="ph">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Turbidity (NTU)</h2>
+      <div class="value" id="ntu">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Water Temperature</h2>
+      <div class="value" id="waterTemp">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Air Temperature</h2>
+      <div class="value" id="airTemp">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Humidity</h2>
+      <div class="value" id="humidity">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Water Quality</h2>
+      <div class="value status" id="status">--</div>
+    </div>
+
+  </div>
+
+<script>
+  // 🔥 FIREBASE CONFIG (PASTE YOUR OWN FROM FIREBASE CONSOLE)
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "hito-monitoring-default-rtdb.firebaseapp.com",
+    databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
+    projectId: "hito-monitoring",
+    storageBucket: "hito-monitoring.appspot.com",
+    messagingSenderId: "XXXXXX",
+    appId: "XXXXXX"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const database = firebase.database();
+
+  // 🔄 REALTIME LISTENERS
+  database.ref("HitoFarm/WaterQuality/pH").on("value", snap => {
+    if (snap.exists()) document.getElementById("ph").innerText = snap.val().toFixed(2);
+  });
+
+  database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", snap => {
+    if (snap.exists()) document.getElementById("ntu").innerText = snap.val() + " NTU";
+  });
+
+  database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", snap => {
+    if (snap.exists()) document.getElementById("waterTemp").innerText = snap.val() + " °C";
+  });
+
+  database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", snap => {
+    if (snap.exists()) document.getElementById("airTemp").innerText = snap.val() + " °C";
+  });
+
+  database.ref("HitoFarm/WaterQuality/Humidity").on("value", snap => {
+    if (snap.exists()) document.getElementById("humidity").innerText = snap.val() + " %";
+  });
+
+  database.ref("HitoFarm/Status/WaterQuality").on("value", snap => {
+    if (snap.exists()) document.getElementById("status").innerText = snap.val();
+  });
+</script>
+
+</body>
+</html>
