@@ -1,136 +1,249 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Hito Farm Realtime Monitoring</title>
+<meta charset="UTF-8">
+<title>Hito Farm Realtime Monitoring</title>
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <style>
-    body {
-      background-color: #0f172a;
-      font-family: Arial, sans-serif;
-      color: white;
-      padding: 20px;
-    }
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    h1 {
-      margin-bottom: 20px;
-    }
+<style>
+body {
+  background-color: #0f172a;
+  font-family: Arial, sans-serif;
+  color: white;
+  padding: 20px;
+}
 
-    .container {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 15px;
-    }
+h1, h2 { margin-bottom: 15px; }
 
-    .card {
-      background: #020617;
-      border-radius: 12px;
-      padding: 20px;
-      width: 240px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.4);
-    }
+.container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+}
 
-    .card h2 {
-      font-size: 18px;
-      margin: 0;
-      color: #94a3b8;
-    }
+.card {
+  background: #020617;
+  border-radius: 12px;
+  padding: 20px;
+  width: 240px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.4);
+}
 
-    .value {
-      font-size: 32px;
-      font-weight: bold;
-      margin-top: 10px;
-    }
+.card h2 {
+  font-size: 16px;
+  margin: 0;
+  color: #94a3b8;
+}
 
-    .status {
-      color: #22c55e;
-    }
-  </style>
+.value {
+  font-size: 30px;
+  font-weight: bold;
+  margin-top: 10px;
+}
+
+.status { color: #22c55e; }
+
+canvas {
+  width: 100% !important;
+  height: 180px !important;
+}
+
+/* LOGIN */
+.login-box {
+  max-width: 320px;
+  background: #020617;
+  padding: 20px;
+  border-radius: 12px;
+}
+
+input, button {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 6px;
+  border: none;
+}
+
+button {
+  background: #22c55e;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#dashboard { display: none; }
+</style>
 </head>
 
 <body>
 
-  <h1>🌊 Hito Farm Realtime Dashboard</h1>
+<h1>🌊 Hito Farm Monitoring</h1>
 
+<!-- LOGIN -->
+<div class="login-box" id="authBox">
+  <h2>Login</h2>
+  <input type="email" id="email" placeholder="Email">
+  <input type="password" id="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <p id="authMsg"></p>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <button onclick="logout()">Logout</button>
+
+  <h1>Realtime Dashboard</h1>
+
+  <!-- SENSOR CARDS -->
   <div class="container">
-
-    <div class="card">
-      <h2>pH Level</h2>
-      <div class="value" id="ph">--</div>
-    </div>
-
-    <div class="card">
-      <h2>Turbidity (NTU)</h2>
-      <div class="value" id="ntu">--</div>
-    </div>
-
-    <div class="card">
-      <h2>Water Temperature</h2>
-      <div class="value" id="waterTemp">--</div>
-    </div>
-
-    <div class="card">
-      <h2>Air Temperature</h2>
-      <div class="value" id="airTemp">--</div>
-    </div>
-
-    <div class="card">
-      <h2>Humidity</h2>
-      <div class="value" id="humidity">--</div>
-    </div>
-
-    <div class="card">
-      <h2>Water Quality</h2>
-      <div class="value status" id="status">--</div>
-    </div>
-
+    <div class="card"><h2>pH Level</h2><div class="value" id="ph">--</div></div>
+    <div class="card"><h2>Turbidity</h2><div class="value" id="ntu">--</div></div>
+    <div class="card"><h2>Water Temp</h2><div class="value" id="waterTemp">--</div></div>
+    <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
+    <div class="card"><h2>Humidity</h2><div class="value" id="humidity">--</div></div>
+    <div class="card"><h2>Water Quality</h2><div class="value status" id="status">--</div></div>
   </div>
 
+  <!-- GRAPHS -->
+  <h2>📈 Sensor History (Hourly)</h2>
+  <div class="container">
+    <div class="card"><canvas id="phChart"></canvas></div>
+    <div class="card"><canvas id="ntuChart"></canvas></div>
+    <div class="card"><canvas id="waterTempChart"></canvas></div>
+    <div class="card"><canvas id="airTempChart"></canvas></div>
+    <div class="card"><canvas id="humidityChart"></canvas></div>
+  </div>
+</div>
+
 <script>
-  // 🔥 FIREBASE CONFIG (PASTE YOUR OWN FROM FIREBASE CONSOLE)
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "hito-monitoring-default-rtdb.firebaseapp.com",
-    databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
-    projectId: "hito-monitoring",
-    storageBucket: "hito-monitoring.appspot.com",
-    messagingSenderId: "XXXXXX",
-    appId: "XXXXXX"
-  };
+// 🔥 FIREBASE CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc",
+  authDomain: "hito-monitoring.firebaseapp.com",
+  databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
+  projectId: "hito-monitoring",
+  storageBucket: "hito-monitoring.firebasestorage.app",
+  messagingSenderId: "954656404456",
+  appId: "1:954656404456:web:cce4033f1c1e1ce4aeaa5d"
+};
 
-  // Initialize Firebase
-  firebase.initializeApp(firebaseConfig);
-  const database = firebase.database();
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const database = firebase.database();
 
-  // 🔄 REALTIME LISTENERS
-  database.ref("HitoFarm/WaterQuality/pH").on("value", snap => {
-    if (snap.exists()) document.getElementById("ph").innerText = snap.val().toFixed(2);
+// 🔐 LOGIN
+function login() {
+  auth.signInWithEmailAndPassword(email.value, password.value)
+    .catch(err => authMsg.innerText = err.message);
+}
+
+function logout() {
+  auth.signOut();
+}
+
+// 📊 CHART SETUP (Hourly AM/PM)
+const hourlyLabels = [];
+for(let h = 1; h <= 24; h++) {
+  let hour = h % 12 === 0 ? 12 : h % 12;
+  let period = h < 12 ? "AM" : "PM";
+  hourlyLabels.push(hour + " " + period);
+}
+
+function createHourlyChart(id, label, color) {
+  return new Chart(document.getElementById(id), {
+    type: 'line',
+    data: {
+      labels: hourlyLabels,
+      datasets: [{
+        label: label,
+        data: Array(24).fill(null), // initialize 24-hour slots
+        borderColor: color,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { 
+          display: true,
+          title: { display: true, text: 'Time (Hourly)' }
+        }
+      }
+    }
+  });
+}
+
+// Create charts
+const phChart = createHourlyChart("phChart", "pH", "#22c55e");
+const ntuChart = createHourlyChart("ntuChart", "NTU", "#38bdf8");
+const waterTempChart = createHourlyChart("waterTempChart", "Water Temp", "#f97316");
+const airTempChart = createHourlyChart("airTempChart", "Air Temp", "#eab308");
+const humidityChart = createHourlyChart("humidityChart", "Humidity", "#a855f7");
+
+// Update chart at the current hour
+function updateChartHourly(chart, value) {
+  const hour = new Date().getHours(); // 0-23
+  chart.data.datasets[0].data[hour] = value;
+  chart.update();
+}
+
+// 🔄 REALTIME DATA
+function loadRealtimeData() {
+
+  database.ref("HitoFarm/WaterQuality/pH").on("value", s => {
+    const v = s.val();
+    ph.innerText = v?.toFixed(2) ?? "--";
+    if(v !== null) updateChartHourly(phChart, v);
   });
 
-  database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", snap => {
-    if (snap.exists()) document.getElementById("ntu").innerText = snap.val() + " NTU";
+  database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", s => {
+    const v = s.val();
+    ntu.innerText = v ? v + " NTU" : "--";
+    if(v !== null) updateChartHourly(ntuChart, v);
   });
 
-  database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", snap => {
-    if (snap.exists()) document.getElementById("waterTemp").innerText = snap.val() + " °C";
+  database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", s => {
+    const v = s.val();
+    waterTemp.innerText = v ? v + " °C" : "--";
+    if(v !== null) updateChartHourly(waterTempChart, v);
   });
 
-  database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", snap => {
-    if (snap.exists()) document.getElementById("airTemp").innerText = snap.val() + " °C";
+  database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", s => {
+    const v = s.val();
+    airTemp.innerText = v ? v + " °C" : "--";
+    if(v !== null) updateChartHourly(airTempChart, v);
   });
 
-  database.ref("HitoFarm/WaterQuality/Humidity").on("value", snap => {
-    if (snap.exists()) document.getElementById("humidity").innerText = snap.val() + " %";
+  database.ref("HitoFarm/WaterQuality/Humidity").on("value", s => {
+    const v = s.val();
+    humidity.innerText = v ? v + " %" : "--";
+    if(v !== null) updateChartHourly(humidityChart, v);
   });
 
-  database.ref("HitoFarm/Status/WaterQuality").on("value", snap => {
-    if (snap.exists()) document.getElementById("status").innerText = snap.val();
-  });
+  database.ref("HitoFarm/Status/WaterQuality")
+    .on("value", s => status.innerText = s.val() || "--");
+}
+
+// 🔑 AUTH STATE
+auth.onAuthStateChanged(user => {
+  if(user) {
+    authBox.style.display = "none";
+    dashboard.style.display = "block";
+    loadRealtimeData();
+  } else {
+    authBox.style.display = "block";
+    dashboard.style.display = "none";
+  }
+});
 </script>
 
 </body>
 </html>
+
