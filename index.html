@@ -137,6 +137,17 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const database = firebase.database();
 
+// DOM references
+const ph = document.getElementById("ph");
+const ntu = document.getElementById("ntu");
+const waterTemp = document.getElementById("waterTemp");
+const airTemp = document.getElementById("airTemp");
+const humidity = document.getElementById("humidity");
+const status = document.getElementById("status");
+const authBox = document.getElementById("authBox");
+const dashboard = document.getElementById("dashboard");
+const authMsg = document.getElementById("authMsg");
+
 // 🔐 LOGIN
 function login() {
   auth.signInWithEmailAndPassword(email.value, password.value)
@@ -162,7 +173,7 @@ function createHourlyChart(id, label, color) {
       labels: hourlyLabels,
       datasets: [{
         label: label,
-        data: Array(24).fill(null), // initialize 24-hour slots
+        data: Array(24).fill(null),
         borderColor: color,
         tension: 0.4
       }]
@@ -171,10 +182,7 @@ function createHourlyChart(id, label, color) {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
-        x: { 
-          display: true,
-          title: { display: true, text: 'Time (Hourly)' }
-        }
+        x: { title: { display: true, text: 'Time (Hourly)' } }
       }
     }
   });
@@ -189,7 +197,7 @@ const humidityChart = createHourlyChart("humidityChart", "Humidity", "#a855f7");
 
 // Update chart at the current hour
 function updateChartHourly(chart, value) {
-  const hour = new Date().getHours(); // 0-23
+  const hour = new Date().getHours();
   chart.data.datasets[0].data[hour] = value;
   chart.update();
 }
@@ -199,36 +207,39 @@ function loadRealtimeData() {
 
   database.ref("HitoFarm/WaterQuality/pH").on("value", s => {
     const v = s.val();
-    ph.innerText = v?.toFixed(2) ?? "--";
+    ph.innerText = v !== null ? v.toFixed(2) : "--";
     if(v !== null) updateChartHourly(phChart, v);
   });
 
   database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", s => {
     const v = s.val();
-    ntu.innerText = v ? v + " NTU" : "--";
+    ntu.innerText = v !== null ? v + " NTU" : "--";
     if(v !== null) updateChartHourly(ntuChart, v);
   });
 
   database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", s => {
     const v = s.val();
-    waterTemp.innerText = v ? v + " °C" : "--";
+    waterTemp.innerText = v !== null ? v + " °C" : "--";
     if(v !== null) updateChartHourly(waterTempChart, v);
   });
 
   database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", s => {
     const v = s.val();
-    airTemp.innerText = v ? v + " °C" : "--";
+    airTemp.innerText = v !== null ? v + " °C" : "--";
     if(v !== null) updateChartHourly(airTempChart, v);
   });
 
   database.ref("HitoFarm/WaterQuality/Humidity").on("value", s => {
     const v = s.val();
-    humidity.innerText = v ? v + " %" : "--";
+    humidity.innerText = v !== null ? v + " %" : "--";
     if(v !== null) updateChartHourly(humidityChart, v);
   });
 
-  database.ref("HitoFarm/Status/WaterQuality")
-    .on("value", s => status.innerText = s.val() || "--");
+  // ✅ Fixed water quality display
+  database.ref("HitoFarm/Status/WaterQuality").on("value", s => {
+    const v = s.val();
+    status.innerText = v !== null ? v : "--";
+  });
 }
 
 // 🔑 AUTH STATE
@@ -246,4 +257,6 @@ auth.onAuthStateChanged(user => {
 
 </body>
 </html>
+
+
 
