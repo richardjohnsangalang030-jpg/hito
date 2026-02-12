@@ -61,10 +61,15 @@
     <div class="value status" id="status">--</div>
   </div>
 
-  <!-- Valve status card (shown only in manual mode) -->
+  <!-- Manual Mode Cards -->
   <div class="card valve-card" id="valveCard">
     <h2>Valve Status</h2>
     <div class="value valve-status" id="valveStatus">--</div>
+  </div>
+
+  <div class="card valve-card" id="feedStatusCard">
+    <h2>Manual Feed Status</h2>
+    <div class="value valve-status" id="feedStatus">--</div>
   </div>
 </div>
 
@@ -126,16 +131,19 @@
   const statusEl = document.getElementById("status");
   const valveCard = document.getElementById("valveCard");
   const valveStatusEl = document.getElementById("valveStatus");
+  const feedStatusCard = document.getElementById("feedStatusCard");
+  const feedStatusEl = document.getElementById("feedStatus");
 
   database.ref("HitoFarm/ControlMode").on("value", snap => {
     if(snap.exists()) {
-      const mode = snap.val().toUpperCase(); // caps lock
+      const mode = snap.val().toUpperCase();
       statusEl.innerText = mode;
       document.getElementById("modeSelect").value = snap.val();
 
       const isManual = (snap.val() === "manual");
       document.getElementById("manualControls").style.display = isManual ? "block" : "none";
       valveCard.style.display = isManual ? "block" : "none";
+      feedStatusCard.style.display = isManual ? "block" : "none";
     }
   });
 
@@ -144,6 +152,14 @@
     if(snap.exists()) {
       const isOn = snap.val(); // true or false
       valveStatusEl.innerText = isOn ? "OPEN" : "OFF";
+    }
+  });
+
+  // ===== Manual Feed Status Binding =====
+  database.ref("HitoFarm/Manual/Feed").on("value", snap => {
+    if(snap.exists()) {
+      const isFeeding = snap.val();
+      feedStatusEl.innerText = isFeeding ? "ON" : "OFF";
     }
   });
 
@@ -156,6 +172,7 @@
     database.ref("HitoFarm/ControlMode").set(mode);
     manualControls.style.display = (mode === "manual") ? "block" : "none";
     valveCard.style.display = (mode === "manual") ? "block" : "none";
+    feedStatusCard.style.display = (mode === "manual") ? "block" : "none";
   });
 
   // ===== Manual Buttons =====
