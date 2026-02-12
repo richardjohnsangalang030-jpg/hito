@@ -1,262 +1,271 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Hito Farm Realtime Monitoring</title>
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include "DHT.h"
+#include <ESP32Servo.h>
+#include <WiFiUdp.h>
+#include <NTPClient.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+/* ===================== WIFI ===================== */
+#define WIFI_SSID "HGW-F80D35"
+#define WIFI_PASSWORD "12345678"
 
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+/* ===================== FIREBASE ===================== */
+#define API_KEY "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc"
+#define DATABASE_URL "https://hito-monitoring-default-rtdb.firebaseio.com"
+#define USER_EMAIL "richardjohnsangalang030@gmail.com"
+#define USER_PASSWORD "09099603909"
 
-<style>
-body {
-  background-color: #0f172a;
-  font-family: Arial, sans-serif;
-  color: white;
-  padding: 20px;
-}
+/* ===================== PINS ===================== */
+#define DHTPIN 4
+#define DHTTYPE DHT22
+#define PH_SENSOR_PIN 34
+#define ONE_WIRE_BUS 27
+#define SERVO_PIN 25
+#define RELAY1_PIN 26 // Turbidity cleaning relay
+#define RELAY2_PIN 14 // Scheduled cleaning relay
+#define TURBIDITY_PIN 32 // Analog pin for turbidity sensor
 
-h1, h2 { margin-bottom: 15px; }
+/* ===================== OBJECTS ===================== */
+DHT dht(DHTPIN, DHTTYPE);
+Servo feederServo;
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature waterTempSensor(&oneWire);
 
-.container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-}
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
 
-.card {
-  background: #020617;
-  border-radius: 12px;
-  padding: 20px;
-  width: 240px;
-  box-shadow: 0 0 10px rgba(0,0,0,0.4);
-}
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 8 * 3600, 60000);
 
-.card h2 {
-  font-size: 16px;
-  margin: 0;
-  color: #94a3b8;
-}
+/* ===================== VARIABLES ===================== */
+float airTemp, humidity, pHValue, waterTemp;
+int read_ADC, ntu;
+String waterQualityStatus;
 
-.value {
-  font-size: 30px;
-  font-weight: bold;
-  margin-top: 10px;
-}
+/* ===================== FEEDING ===================== */
+int feedHour1 = 9;   // 9:00 AM
+int feedHour2 = 21;  // 9:00 PM
+int feedMinute = 0;
+bool hasFedAM = false;
+bool hasFedPM = false;
 
-.status { color: #22c55e; }
+/* ===================== CONTROL MODE ===================== */
+String controlMode = "automatic"; // default mode
 
-canvas {
-  width: 100% !important;
-  height: 180px !important;
-}
+/* ===================== TIMING ===================== */
+unsigned long lastSend = 0;
+const unsigned long interval = 3000;
 
-/* LOGIN */
-.login-box {
-  max-width: 320px;
-  background: #020617;
-  padding: 20px;
-  border-radius: 12px;
-}
+/* ===================== SCHEDULED CLEANING ===================== */
+unsigned long lastScheduledOpen = 0;
+const unsigned long scheduledInterval = 3UL * 24UL * 3600UL * 1000UL; // 3 days
+const unsigned long scheduledDuration = 2UL * 3600UL * 1000UL;          // 2 hours
+bool scheduledActive = false;
+unsigned long scheduledStartTime = 0;
 
-input, button {
-  width: 100%;
-  padding: 10px;
-  margin-top: 10px;
-  border-radius: 6px;
-  border: none;
-}
+/* ===================== SETUP ===================== */
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  waterTempSensor.begin();
+  feederServo.attach(SERVO_PIN);
+  feederServo.write(0);
 
-button {
-  background: #22c55e;
-  font-weight: bold;
-  cursor: pointer;
-}
+  pinMode(RELAY1_PIN, OUTPUT);
+  pinMode(RELAY2_PIN, OUTPUT);
+  pinMode(TURBIDITY_PIN, INPUT);
 
-#dashboard { display: none; }
-</style>
-</head>
+  digitalWrite(RELAY1_PIN, HIGH);
+  digitalWrite(RELAY2_PIN, HIGH);
 
-<body>
-
-<h1>🌊 Hito Farm Monitoring</h1>
-
-<!-- LOGIN -->
-<div class="login-box" id="authBox">
-  <h2>Login</h2>
-  <input type="email" id="email" placeholder="Email">
-  <input type="password" id="password" placeholder="Password">
-  <button onclick="login()">Login</button>
-  <p id="authMsg"></p>
-</div>
-
-<!-- DASHBOARD -->
-<div id="dashboard">
-  <button onclick="logout()">Logout</button>
-
-  <h1>Realtime Dashboard</h1>
-
-  <!-- SENSOR CARDS -->
-  <div class="container">
-    <div class="card"><h2>pH Level</h2><div class="value" id="ph">--</div></div>
-    <div class="card"><h2>Turbidity</h2><div class="value" id="ntu">--</div></div>
-    <div class="card"><h2>Water Temp</h2><div class="value" id="waterTemp">--</div></div>
-    <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
-    <div class="card"><h2>Humidity</h2><div class="value" id="humidity">--</div></div>
-    <div class="card"><h2>Water Quality</h2><div class="value status" id="status">--</div></div>
-  </div>
-
-  <!-- GRAPHS -->
-  <h2>📈 Sensor History (Hourly)</h2>
-  <div class="container">
-    <div class="card"><canvas id="phChart"></canvas></div>
-    <div class="card"><canvas id="ntuChart"></canvas></div>
-    <div class="card"><canvas id="waterTempChart"></canvas></div>
-    <div class="card"><canvas id="airTempChart"></canvas></div>
-    <div class="card"><canvas id="humidityChart"></canvas></div>
-  </div>
-</div>
-
-<script>
-// 🔥 FIREBASE CONFIG
-const firebaseConfig = {
-  apiKey: "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc",
-  authDomain: "hito-monitoring.firebaseapp.com",
-  databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
-  projectId: "hito-monitoring",
-  storageBucket: "hito-monitoring.firebasestorage.app",
-  messagingSenderId: "954656404456",
-  appId: "1:954656404456:web:cce4033f1c1e1ce4aeaa5d"
-};
-
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const database = firebase.database();
-
-// DOM references
-const ph = document.getElementById("ph");
-const ntu = document.getElementById("ntu");
-const waterTemp = document.getElementById("waterTemp");
-const airTemp = document.getElementById("airTemp");
-const humidity = document.getElementById("humidity");
-const status = document.getElementById("status");
-const authBox = document.getElementById("authBox");
-const dashboard = document.getElementById("dashboard");
-const authMsg = document.getElementById("authMsg");
-
-// 🔐 LOGIN
-function login() {
-  auth.signInWithEmailAndPassword(email.value, password.value)
-    .catch(err => authMsg.innerText = err.message);
-}
-
-function logout() {
-  auth.signOut();
-}
-
-// 📊 CHART SETUP (Hourly AM/PM)
-const hourlyLabels = [];
-for(let h = 1; h <= 24; h++) {
-  let hour = h % 12 === 0 ? 12 : h % 12;
-  let period = h < 12 ? "AM" : "PM";
-  hourlyLabels.push(hour + " " + period);
-}
-
-function createHourlyChart(id, label, color) {
-  return new Chart(document.getElementById(id), {
-    type: 'line',
-    data: {
-      labels: hourlyLabels,
-      datasets: [{
-        label: label,
-        data: Array(24).fill(null),
-        borderColor: color,
-        tension: 0.4
-      }]
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { title: { display: true, text: 'Time (Hourly)' } }
-      }
-    }
-  });
-}
-
-// Create charts
-const phChart = createHourlyChart("phChart", "pH", "#22c55e");
-const ntuChart = createHourlyChart("ntuChart", "NTU", "#38bdf8");
-const waterTempChart = createHourlyChart("waterTempChart", "Water Temp", "#f97316");
-const airTempChart = createHourlyChart("airTempChart", "Air Temp", "#eab308");
-const humidityChart = createHourlyChart("humidityChart", "Humidity", "#a855f7");
-
-// Update chart at the current hour
-function updateChartHourly(chart, value) {
-  const hour = new Date().getHours();
-  chart.data.datasets[0].data[hour] = value;
-  chart.update();
-}
-
-// 🔄 REALTIME DATA
-function loadRealtimeData() {
-
-  database.ref("HitoFarm/WaterQuality/pH").on("value", s => {
-    const v = s.val();
-    ph.innerText = v !== null ? v.toFixed(2) : "--";
-    if(v !== null) updateChartHourly(phChart, v);
-  });
-
-  database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", s => {
-    const v = s.val();
-    ntu.innerText = v !== null ? v + " NTU" : "--";
-    if(v !== null) updateChartHourly(ntuChart, v);
-  });
-
-  database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", s => {
-    const v = s.val();
-    waterTemp.innerText = v !== null ? v + " °C" : "--";
-    if(v !== null) updateChartHourly(waterTempChart, v);
-  });
-
-  database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", s => {
-    const v = s.val();
-    airTemp.innerText = v !== null ? v + " °C" : "--";
-    if(v !== null) updateChartHourly(airTempChart, v);
-  });
-
-  database.ref("HitoFarm/WaterQuality/Humidity").on("value", s => {
-    const v = s.val();
-    humidity.innerText = v !== null ? v + " %" : "--";
-    if(v !== null) updateChartHourly(humidityChart, v);
-  });
-
-  // ✅ Fixed water quality display
-  database.ref("HitoFarm/Status/WaterQuality").on("value", s => {
-    const v = s.val();
-    status.innerText = v !== null ? v : "--";
-  });
-}
-
-// 🔑 AUTH STATE
-auth.onAuthStateChanged(user => {
-  if(user) {
-    authBox.style.display = "none";
-    dashboard.style.display = "block";
-    loadRealtimeData();
-  } else {
-    authBox.style.display = "block";
-    dashboard.style.display = "none";
+  /* ===== WiFi ===== */
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
   }
-});
-</script>
+  Serial.println("\n✅ WiFi CONNECTED");
 
-</body>
-</html>
+  /* ===== Firebase ===== */
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  auth.user.email = USER_EMAIL;
+  auth.user.password = USER_PASSWORD;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  Serial.print("Connecting to Firebase");
+  unsigned long fbStart = millis();
+  while (!Firebase.ready()) {
+    Serial.print(".");
+    delay(300);
+    if (millis() - fbStart > 10000) {
+      Serial.println("\n❌ Firebase connection FAILED");
+      return;
+    }
+  }
+  Serial.println("\n✅ Firebase CONNECTED");
+
+  timeClient.begin();
+}
+
+/* ===================== LOOP ===================== */
+void loop() {
+  timeClient.update();
+  unsigned long nowMillis = millis();
+  int currentHour = timeClient.getHours();
+  int currentMinute = timeClient.getMinutes();
+
+  /* ===== Firebase status check ===== */
+  static unsigned long lastFBCheck = 0;
+  if (millis() - lastFBCheck > 10000) {
+    lastFBCheck = millis();
+    if (Firebase.ready())
+      Serial.println("✅ Firebase still connected");
+    else
+      Serial.println("❌ Firebase disconnected");
+  }
+
+  /* ===== Read control mode from Firebase ===== */
+  if (Firebase.RTDB.getString(&fbdo, "/HitoFarm/ControlMode")) {
+    controlMode = fbdo.stringData();
+  } else {
+    Serial.println("❌ Failed to read ControlMode");
+  }
+
+  /* ===== Turbidity reading ===== */
+  int rawADC = analogRead(TURBIDITY_PIN);
+  read_ADC = map(rawADC, 0, 4095, 0, 4095);
+  ntu = map(read_ADC, 0, 4095, 300, 10); // calibrated NTU
+
+  // Automatic relay control if in automatic mode
+  if (controlMode == "automatic") {
+    if (ntu <= 50) {
+      digitalWrite(RELAY1_PIN, HIGH); // OFF
+      waterQualityStatus = "OFF";
+    } else {
+      digitalWrite(RELAY1_PIN, LOW);  // ON
+      waterQualityStatus = "OPEN";
+    }
+  } else {
+    waterQualityStatus = "MANUAL";
+  }
+
+  Serial.print("🌊 Turbidity NTU: ");
+  Serial.print(ntu);
+  Serial.print(" | Status: ");
+  Serial.println(waterQualityStatus);
+
+  /* ===== Scheduled cleaning (Relay 2) ===== */
+  if (!scheduledActive && (nowMillis - lastScheduledOpen >= scheduledInterval)) {
+    scheduledActive = true;
+    scheduledStartTime = nowMillis;
+    digitalWrite(RELAY2_PIN, LOW);
+    lastScheduledOpen = nowMillis;
+    Serial.println("🕒 Scheduled cleaning STARTED");
+  }
+  if (scheduledActive && (nowMillis - scheduledStartTime >= scheduledDuration)) {
+    scheduledActive = false;
+    digitalWrite(RELAY2_PIN, HIGH);
+    Serial.println("🕒 Scheduled cleaning STOPPED");
+  }
+
+  /* ===== Read & Send ===== */
+  if (nowMillis - lastSend >= interval) {
+    lastSend = nowMillis;
+    readSensors();
+    sendToFirebase();
+  }
+
+  /* ===== Manual Buttons from Firebase ===== */
+  if (controlMode == "manual") {
+    // Feed
+    if (Firebase.RTDB.getBool(&fbdo, "/HitoFarm/Manual/Feed") && fbdo.boolData()) {
+      feedFish();
+      Serial.println("🐟 Fish FED (manual)");
+      Firebase.RTDB.setBool(&fbdo, "/HitoFarm/Manual/Feed", false); // reset
+    }
+
+    // Valve toggle
+    if (Firebase.RTDB.getBool(&fbdo, "/HitoFarm/Manual/Relay1Toggle") && fbdo.boolData()) {
+      digitalWrite(RELAY1_PIN, !digitalRead(RELAY1_PIN)); // toggle
+      Serial.println("💧 Valve toggled (manual)");
+      Firebase.RTDB.setBool(&fbdo, "/HitoFarm/Manual/Relay1Toggle", false); // reset
+    }
+  }
+
+  /* ===== Automatic Feeding ===== */
+  if (controlMode == "automatic") {
+    if (currentHour == feedHour1 && currentMinute == feedMinute && !hasFedAM) {
+      feedFish();
+      hasFedAM = true;
+      Serial.println("🐟 Fish FED (AM)");
+    }
+    if (currentHour == feedHour2 && currentMinute == feedMinute && !hasFedPM) {
+      feedFish();
+      hasFedPM = true;
+      Serial.println("🐟 Fish FED (PM)");
+    }
+    // Reset at midnight
+    if (currentHour == 0 && currentMinute == 0) {
+      hasFedAM = false;
+      hasFedPM = false;
+    }
+  }
+
+  delay(1000);
+}
+
+/* ===================== READ SENSORS ===================== */
+void readSensors() {
+  airTemp = dht.readTemperature();
+  humidity = dht.readHumidity();
+
+  waterTempSensor.requestTemperatures();
+  waterTemp = waterTempSensor.getTempCByIndex(0);
+
+  int phRaw = analogRead(PH_SENSOR_PIN);
+  float phVoltage = phRaw * (3.3 / 4095.0);
+  pHValue = 2.3 * phVoltage; // adjust calibration
+
+  Serial.println("📊 Sensors Updated");
+}
+
+/* ===================== FIREBASE ===================== */
+void sendToFirebase() {
+  if (!Firebase.ready()) {
+    Serial.println("❌ Firebase not ready, data NOT sent");
+    return;
+  }
+
+  bool ok = true;
+  ok &= Firebase.RTDB.setFloat(&fbdo, "/HitoFarm/WaterQuality/AirTemperature", airTemp);
+  ok &= Firebase.RTDB.setFloat(&fbdo, "/HitoFarm/WaterQuality/Humidity", humidity);
+  ok &= Firebase.RTDB.setFloat(&fbdo, "/HitoFarm/WaterQuality/WaterTemperature", waterTemp);
+  ok &= Firebase.RTDB.setFloat(&fbdo, "/HitoFarm/WaterQuality/pH", pHValue);
+  ok &= Firebase.RTDB.setInt(&fbdo, "/HitoFarm/WaterQuality/TurbidityNTU", ntu);
+  ok &= Firebase.RTDB.setString(&fbdo, "/HitoFarm/Status/WaterQuality", waterQualityStatus);
+
+  if (ok) {
+    Serial.println("✅ Data SENT to Firebase");
+  } else {
+    Serial.print("❌ Firebase ERROR: ");
+    Serial.println(fbdo.errorReason());
+  }
+}
+
+/* ===================== FEEDING ===================== */
+void feedFish() {
+  feederServo.write(180);
+  delay(1000);
+  feederServo.write(0);
+}
+
+
 
 
 
