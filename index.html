@@ -4,191 +4,208 @@
   <meta charset="UTF-8">
   <title>Hito Farm Realtime Dashboard</title>
 
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <!-- Firebase SDKs -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+    import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc",
+      authDomain: "hito-monitoring.firebaseapp.com",
+      databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
+      projectId: "hito-monitoring",
+      storageBucket: "hito-monitoring.firebasestorage.app",
+      messagingSenderId: "954656404456",
+      appId: "1:954656404456:web:cce4033f1c1e1ce4aeaa5d",
+      measurementId: "G-WP4QMNZVGE"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+    const auth = getAuth(app);
+
+    // Elements
+    const loginForm = document.getElementById("loginForm");
+    const dashboard = document.getElementById("dashboard");
+    const loginBtn = document.getElementById("loginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const loginStatus = document.getElementById("loginStatus");
+
+    const emailInput = document.getElementById("email");
+    const passwordInput = document.getElementById("password");
+
+    const phEl = document.getElementById("ph");
+    const ntuEl = document.getElementById("ntu");
+    const waterTempEl = document.getElementById("waterTemp");
+    const airTempEl = document.getElementById("airTemp");
+    const humidityEl = document.getElementById("humidity");
+    const statusEl = document.getElementById("status");
+
+    const valveCard = document.getElementById("valveCard");
+    const valveStatusEl = document.getElementById("valveStatus");
+    const feedStatusCard = document.getElementById("feedStatusCard");
+    const feedStatusEl = document.getElementById("feedStatus");
+
+    const modeSelect = document.getElementById("modeSelect");
+    const manualControls = document.getElementById("manualControls");
+    const feedButton = document.getElementById("feedButton");
+    const valveButton = document.getElementById("valveButton");
+
+    // Login
+    loginBtn.addEventListener("click", () => {
+      const email = emailInput.value;
+      const password = passwordInput.value;
+
+      signInWithEmailAndPassword(auth, email, password)
+        .then(() => {
+          loginStatus.innerText = "Login successful!";
+          loginForm.style.display = "none";
+          dashboard.style.display = "block";
+          initDashboard();
+        })
+        .catch(err => loginStatus.innerText = "Login failed: " + err.message);
+    });
+
+    // Logout
+    logoutBtn.addEventListener("click", () => {
+      signOut(auth).then(() => {
+        dashboard.style.display = "none";
+        loginForm.style.display = "block";
+        loginStatus.innerText = "Logged out.";
+      });
+    });
+
+    // Dashboard logic
+    function initDashboard() {
+      // Sensor data
+      onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => { if(snap.exists()) phEl.innerText = snap.val().toFixed(2); });
+      onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => { if(snap.exists()) ntuEl.innerText = snap.val() + " NTU"; });
+      onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => { if(snap.exists()) waterTempEl.innerText = snap.val() + " °C"; });
+      onValue(ref(database, "HitoFarm/WaterQuality/AirTemperature"), snap => { if(snap.exists()) airTempEl.innerText = snap.val() + " °C"; });
+      onValue(ref(database, "HitoFarm/WaterQuality/Humidity"), snap => { if(snap.exists()) humidityEl.innerText = snap.val() + " %"; });
+      
+      // Water Quality Safe/Contaminated
+      onValue(ref(database, "HitoFarm/Status/WaterQuality"), snap => {
+        if(snap.exists()) {
+          const safe = snap.val() === "Safe" ? "Safe" : "Contaminated";
+          statusEl.innerText = safe;
+          statusEl.style.color = safe === "Safe" ? "#22c55e" : "#f87171";
+        }
+      });
+
+      // Control mode
+      onValue(ref(database, "HitoFarm/ControlMode"), snap => {
+        if(snap.exists()) {
+          const mode = snap.val();
+          modeSelect.value = mode;
+          const isManual = (mode === "manual");
+          manualControls.style.display = isManual ? "block" : "none";
+          valveCard.style.display = isManual ? "block" : "none";
+          feedStatusCard.style.display = isManual ? "block" : "none";
+        }
+      });
+
+      // Automatic status
+      onValue(ref(database, "HitoFarm/Automatic/Relay1Toggle"), snap => {
+        if(snap.exists() && modeSelect.value === "automatic") valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
+      });
+      onValue(ref(database, "HitoFarm/Automatic/Feed"), snap => {
+        if(snap.exists() && modeSelect.value === "automatic") feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
+      });
+
+      // Manual status
+      onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { if(snap.exists()) valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF"; });
+      onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { if(snap.exists()) feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; });
+
+      // Mode change
+      modeSelect.addEventListener("change", () => {
+        const mode = modeSelect.value;
+        set(ref(database, "HitoFarm/ControlMode"), mode);
+        const isManual = (mode === "manual");
+        manualControls.style.display = isManual ? "block" : "none";
+        valveCard.style.display = isManual ? "block" : "none";
+        feedStatusCard.style.display = isManual ? "block" : "none";
+      });
+
+      // Manual buttons
+      feedButton.addEventListener("click", () => set(ref(database, "HitoFarm/Manual/Feed"), true));
+      valveButton.addEventListener("click", async () => {
+        const snap = await get(ref(database, "HitoFarm/Manual/Relay1Toggle"));
+        const current = snap.exists() ? snap.val() : false;
+        set(ref(database, "HitoFarm/Manual/Relay1Toggle"), !current);
+      });
+    }
+  </script>
 
   <style>
     body { background-color: #0f172a; font-family: Arial, sans-serif; color: white; padding: 20px; }
     h1 { margin-bottom: 20px; }
     .container { display: flex; flex-wrap: wrap; gap: 15px; }
-    .card { background: #020617; border-radius: 12px; padding: 20px; width: 240px; box-shadow: 0 0 10px rgba(0,0,0,0.4); }
+    .card { background: #020617; border-radius: 12px; padding: 20px; width: 260px; box-shadow: 0 0 12px rgba(0,0,0,0.5); }
     .card h2 { font-size: 18px; margin: 0; color: #94a3b8; }
-    .value { font-size: 32px; font-weight: bold; margin-top: 10px; }
-    .status { color: #22c55e; }
-    .valve-status { color: #facc15; }
-    button { margin-top: 10px; padding: 10px; width: 100%; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; background-color: #3b82f6; color: white; }
+    .value { font-size: 36px; font-weight: bold; margin-top: 10px; }
+    .status { color: #22c55e; font-size: 36px; }
+    .valve-status { color: #facc15; font-size: 32px; }
+    button { margin-top: 10px; padding: 12px; width: 100%; border: none; border-radius: 8px; font-size: 18px; cursor: pointer; background-color: #3b82f6; color: white; }
     button:hover { background-color: #2563eb; }
-    select { margin-top: 10px; padding: 8px; border-radius: 8px; font-size: 16px; width: 100%; background-color: #1e293b; color: white; border: none; }
-    .manual-controls { display: none; margin-top: 10px; }
+    select { margin-top: 10px; padding: 10px; border-radius: 8px; font-size: 18px; width: 100%; background-color: #1e293b; color: white; border: none; }
+    .manual-controls { display: none; margin-top: 15px; }
     .valve-card { display: none; }
+    #dashboard { display: none; }
+    #loginForm { max-width: 320px; margin-bottom: 20px; }
+    input { width: 100%; margin-top: 10px; padding: 10px; border-radius: 6px; border: none; font-size: 16px; }
+    #loginStatus { margin-top: 10px; font-size: 16px; color: #f87171; }
   </style>
 </head>
-
 <body>
+  <h1>🌊 Hito Farm Realtime Dashboard</h1>
 
-<h1>🌊 Hito Farm Realtime Dashboard</h1>
-
-<!-- Sensor Data Cards -->
-<div class="container">
-  <div class="card">
-    <h2>pH Level</h2>
-    <div class="value" id="ph">--</div>
+  <!-- Login Form -->
+  <div id="loginForm" class="card">
+    <h2>Login</h2>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="password" placeholder="Password">
+    <button id="loginBtn">Login</button>
+    <div id="loginStatus"></div>
   </div>
 
-  <div class="card">
-    <h2>Turbidity (NTU)</h2>
-    <div class="value" id="ntu">--</div>
-  </div>
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <button id="logoutBtn">Logout</button>
+    <div class="container">
+      <div class="card"><h2>pH Level</h2><div class="value" id="ph">--</div></div>
+      <div class="card"><h2>Turbidity (NTU)</h2><div class="value" id="ntu">--</div></div>
+      <div class="card"><h2>Water Temperature</h2><div class="value" id="waterTemp">--</div></div>
+      <div class="card"><h2>Air Temperature</h2><div class="value" id="airTemp">--</div></div>
+      <div class="card"><h2>Humidity</h2><div class="value" id="humidity">--</div></div>
+      <div class="card"><h2>Water Quality</h2><div class="value status" id="status">--</div></div>
 
-  <div class="card">
-    <h2>Water Temperature</h2>
-    <div class="value" id="waterTemp">--</div>
-  </div>
+      <!-- Manual Mode Cards -->
+      <div class="card valve-card" id="valveCard">
+        <h2>Valve Status</h2><div class="value valve-status" id="valveStatus">--</div>
+      </div>
+      <div class="card valve-card" id="feedStatusCard">
+        <h2>Manual Feed Status</h2><div class="value valve-status" id="feedStatus">--</div>
+      </div>
+    </div>
 
-  <div class="card">
-    <h2>Air Temperature</h2>
-    <div class="value" id="airTemp">--</div>
-  </div>
-
-  <div class="card">
-    <h2>Humidity</h2>
-    <div class="value" id="humidity">--</div>
-  </div>
-
-  <div class="card">
-    <h2>Mode</h2>
-    <div class="value status" id="status">--</div>
-  </div>
-
-  <!-- Manual Mode Cards -->
-  <div class="card valve-card" id="valveCard">
-    <h2>Valve Status</h2>
-    <div class="value valve-status" id="valveStatus">--</div>
-  </div>
-
-  <div class="card valve-card" id="feedStatusCard">
-    <h2>Manual Feed Status</h2>
-    <div class="value valve-status" id="feedStatus">--</div>
-  </div>
-</div>
-
-<!-- Control Mode Selection -->
-<h2>Mode Selection</h2>
-<div class="container">
-  <div class="card">
-    <h2>Control Mode</h2>
-    <select id="modeSelect">
-      <option value="automatic">Automatic</option>
-      <option value="manual">Manual</option>
-    </select>
-
-    <div class="manual-controls" id="manualControls">
-      <button id="feedButton">Feed Fish</button>
-      <button id="valveButton">Toggle Valve</button>
+    <!-- Control Mode -->
+    <h2>Mode Selection</h2>
+    <div class="container">
+      <div class="card">
+        <h2>Control Mode</h2>
+        <select id="modeSelect">
+          <option value="automatic">Automatic</option>
+          <option value="manual">Manual</option>
+        </select>
+        <div class="manual-controls" id="manualControls">
+          <button id="feedButton">Feed Fish</button>
+          <button id="valveButton">Toggle Valve</button>
+        </div>
+      </div>
     </div>
   </div>
-</div>
-
-<script>
-  // ===== Firebase Configuration =====
-  const firebaseConfig = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "hito-monitoring-default-rtdb.firebaseapp.com",
-    databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
-    projectId: "hito-monitoring",
-    storageBucket: "hito-monitoring.appspot.com",
-    messagingSenderId: "XXXXXX",
-    appId: "XXXXXX"
-  };
-
-  // Initialize Firebase
-  firebase.initializeApp(firebaseConfig);
-  const database = firebase.database();
-
-  // ===== Sensor Data Binding =====
-  database.ref("HitoFarm/WaterQuality/pH").on("value", snap => {
-    if(snap.exists()) document.getElementById("ph").innerText = snap.val().toFixed(2);
-  });
-
-  database.ref("HitoFarm/WaterQuality/TurbidityNTU").on("value", snap => {
-    if(snap.exists()) document.getElementById("ntu").innerText = snap.val() + " NTU";
-  });
-
-  database.ref("HitoFarm/WaterQuality/WaterTemperature").on("value", snap => {
-    if(snap.exists()) document.getElementById("waterTemp").innerText = snap.val() + " °C";
-  });
-
-  database.ref("HitoFarm/WaterQuality/AirTemperature").on("value", snap => {
-    if(snap.exists()) document.getElementById("airTemp").innerText = snap.val() + " °C";
-  });
-
-  database.ref("HitoFarm/WaterQuality/Humidity").on("value", snap => {
-    if(snap.exists()) document.getElementById("humidity").innerText = snap.val() + " %";
-  });
-
-  // ===== Control Mode Binding =====
-  const statusEl = document.getElementById("status");
-  const valveCard = document.getElementById("valveCard");
-  const valveStatusEl = document.getElementById("valveStatus");
-  const feedStatusCard = document.getElementById("feedStatusCard");
-  const feedStatusEl = document.getElementById("feedStatus");
-
-  database.ref("HitoFarm/ControlMode").on("value", snap => {
-    if(snap.exists()) {
-      const mode = snap.val().toUpperCase();
-      statusEl.innerText = mode;
-      document.getElementById("modeSelect").value = snap.val();
-
-      const isManual = (snap.val() === "manual");
-      document.getElementById("manualControls").style.display = isManual ? "block" : "none";
-      valveCard.style.display = isManual ? "block" : "none";
-      feedStatusCard.style.display = isManual ? "block" : "none";
-    }
-  });
-
-  // ===== Valve Status Binding (Manual Relay1Toggle) =====
-  database.ref("HitoFarm/Manual/Relay1Toggle").on("value", snap => {
-    if(snap.exists()) {
-      const isOn = snap.val(); // true or false
-      valveStatusEl.innerText = isOn ? "OPEN" : "OFF";
-    }
-  });
-
-  // ===== Manual Feed Status Binding =====
-  database.ref("HitoFarm/Manual/Feed").on("value", snap => {
-    if(snap.exists()) {
-      const isFeeding = snap.val();
-      feedStatusEl.innerText = isFeeding ? "ON" : "OFF";
-    }
-  });
-
-  // ===== Mode Selection Dropdown =====
-  const modeSelect = document.getElementById("modeSelect");
-  const manualControls = document.getElementById("manualControls");
-
-  modeSelect.addEventListener("change", () => {
-    const mode = modeSelect.value;
-    database.ref("HitoFarm/ControlMode").set(mode);
-    manualControls.style.display = (mode === "manual") ? "block" : "none";
-    valveCard.style.display = (mode === "manual") ? "block" : "none";
-    feedStatusCard.style.display = (mode === "manual") ? "block" : "none";
-  });
-
-  // ===== Manual Buttons =====
-  document.getElementById("feedButton").addEventListener("click", () => {
-    database.ref("HitoFarm/Manual/Feed").set(true);
-    alert("Manual Feed Triggered!");
-  });
-
-  document.getElementById("valveButton").addEventListener("click", () => {
-    // toggle the valve
-    database.ref("HitoFarm/Manual/Relay1Toggle").get().then(snap => {
-      const current = snap.exists() ? snap.val() : false;
-      database.ref("HitoFarm/Manual/Relay1Toggle").set(!current);
-    });
-  });
-</script>
-
 </body>
 </html>
