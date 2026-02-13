@@ -53,7 +53,7 @@
     const feedButton = document.getElementById("feedButton");
     const valveButton = document.getElementById("valveButton");
 
-    // Login
+    // LOGIN
     loginBtn.addEventListener("click", () => {
       const email = emailInput.value;
       const password = passwordInput.value;
@@ -68,7 +68,7 @@
         .catch(err => loginStatus.innerText = "Login failed: " + err.message);
     });
 
-    // Logout
+    // LOGOUT
     logoutBtn.addEventListener("click", () => {
       signOut(auth).then(() => {
         dashboard.style.display = "none";
@@ -77,63 +77,89 @@
       });
     });
 
-    // Dashboard logic
+    // DASHBOARD LOGIC
     function initDashboard() {
-      // Sensor data
-      onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => { if(snap.exists()) phEl.innerText = snap.val().toFixed(2); });
-      onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => { if(snap.exists()) ntuEl.innerText = snap.val() + " NTU"; });
-      onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => { if(snap.exists()) waterTempEl.innerText = snap.val() + " °C"; });
-      onValue(ref(database, "HitoFarm/WaterQuality/AirTemperature"), snap => { if(snap.exists()) airTempEl.innerText = snap.val() + " °C"; });
-      onValue(ref(database, "HitoFarm/WaterQuality/Humidity"), snap => { if(snap.exists()) humidityEl.innerText = snap.val() + " %"; });
-      
-      // Water Quality Safe/Contaminated
+      // SENSOR DATA
+      onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
+        if (snap.exists()) phEl.innerText = snap.val().toFixed(2);
+      });
+      onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
+        if (snap.exists()) ntuEl.innerText = snap.val() + " NTU";
+      });
+      onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => {
+        if (snap.exists()) waterTempEl.innerText = snap.val() + " °C";
+      });
+      onValue(ref(database, "HitoFarm/WaterQuality/AirTemperature"), snap => {
+        if (snap.exists()) airTempEl.innerText = snap.val() + " °C";
+      });
+      onValue(ref(database, "HitoFarm/WaterQuality/Humidity"), snap => {
+        if (snap.exists()) humidityEl.innerText = snap.val() + " %";
+      });
+
+      // WATER QUALITY STATUS
       onValue(ref(database, "HitoFarm/Status/WaterQuality"), snap => {
-        if(snap.exists()) {
+        if (snap.exists()) {
           const safe = snap.val() === "Safe" ? "Safe" : "Contaminated";
           statusEl.innerText = safe;
           statusEl.style.color = safe === "Safe" ? "#22c55e" : "#f87171";
         }
       });
 
-      // Control mode
+      // CONTROL MODE
       onValue(ref(database, "HitoFarm/ControlMode"), snap => {
-        if(snap.exists()) {
+        if (snap.exists()) {
           const mode = snap.val();
           modeSelect.value = mode;
-          const isManual = (mode === "manual");
+          const isManual = mode === "manual";
           manualControls.style.display = isManual ? "block" : "none";
           valveCard.style.display = isManual ? "block" : "none";
           feedStatusCard.style.display = isManual ? "block" : "none";
         }
       });
 
-      // Automatic status
+      // AUTOMATIC STATUS
       onValue(ref(database, "HitoFarm/Automatic/Relay1Toggle"), snap => {
-        if(snap.exists() && modeSelect.value === "automatic") valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
+        if (snap.exists() && modeSelect.value === "automatic") {
+          valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
+        }
       });
       onValue(ref(database, "HitoFarm/Automatic/Feed"), snap => {
-        if(snap.exists() && modeSelect.value === "automatic") feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
+        if (snap.exists() && modeSelect.value === "automatic") {
+          feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
+        }
       });
 
-      // Manual status
-      onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { if(snap.exists()) valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF"; });
-      onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { if(snap.exists()) feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; });
+      // MANUAL STATUS
+      onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => {
+        if (snap.exists() && modeSelect.value === "manual") {
+          valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
+        }
+      });
+      onValue(ref(database, "HitoFarm/Manual/Feed"), snap => {
+        if (snap.exists() && modeSelect.value === "manual") {
+          feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
+        }
+      });
 
-      // Mode change
+      // MODE CHANGE
       modeSelect.addEventListener("change", () => {
         const mode = modeSelect.value;
         set(ref(database, "HitoFarm/ControlMode"), mode);
-        const isManual = (mode === "manual");
+        const isManual = mode === "manual";
         manualControls.style.display = isManual ? "block" : "none";
         valveCard.style.display = isManual ? "block" : "none";
         feedStatusCard.style.display = isManual ? "block" : "none";
       });
 
-      // Manual buttons
-      feedButton.addEventListener("click", () => set(ref(database, "HitoFarm/Manual/Feed"), true));
+      // MANUAL BUTTONS
+      feedButton.addEventListener("click", () => {
+        set(ref(database, "HitoFarm/Manual/Feed"), true);
+      });
+
       valveButton.addEventListener("click", async () => {
         const snap = await get(ref(database, "HitoFarm/Manual/Relay1Toggle"));
         const current = snap.exists() ? snap.val() : false;
+        // Toggle Relay1Toggle value
         set(ref(database, "HitoFarm/Manual/Relay1Toggle"), !current);
       });
     }
