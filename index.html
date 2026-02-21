@@ -1,195 +1,303 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Hito Farm Realtime Dashboard</title>
+<meta charset="UTF-8">
+<title>Hito Farm Realtime Dashboard</title>
 
-  <!-- Firebase SDKs -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-    import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
-    import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
-    // Firebase config
-    const firebaseConfig = {
-      apiKey: "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc",
-      authDomain: "hito-monitoring.firebaseapp.com",
-      databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
-      projectId: "hito-monitoring",
-      storageBucket: "hito-monitoring.firebasestorage.app",
-      messagingSenderId: "954656404456",
-      appId: "1:954656404456:web:cce4033f1c1e1ce4aeaa5d",
-      measurementId: "G-WP4QMNZVGE"
-    };
+const firebaseConfig = {
+  apiKey: "AIzaSyB2QxCK3CFtCQN-66Ro2SF2jFSkEzE2kNc",
+  authDomain: "hito-monitoring.firebaseapp.com",
+  databaseURL: "https://hito-monitoring-default-rtdb.firebaseio.com",
+  projectId: "hito-monitoring",
+  storageBucket: "hito-monitoring.firebasestorage.app",
+  messagingSenderId: "954656404456",
+  appId: "1:954656404456:web:cce4033f1c1e1ce4aeaa5d"
+};
 
-    const app = initializeApp(firebaseConfig);
-    const database = getDatabase(app);
-    const auth = getAuth(app);
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+const auth = getAuth(app);
 
-    const loginForm = document.getElementById("loginForm");
-    const dashboard = document.getElementById("dashboard");
-    const loginBtn = document.getElementById("loginBtn");
-    const logoutBtn = document.getElementById("logoutBtn");
-    const loginStatus = document.getElementById("loginStatus");
+const loginForm = document.getElementById("loginForm");
+const dashboard = document.getElementById("dashboard");
+const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const loginStatus = document.getElementById("loginStatus");
 
-    const emailInput = document.getElementById("email");
-    const passwordInput = document.getElementById("password");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
 
-    const phEl = document.getElementById("ph");
-    const ntuEl = document.getElementById("ntu");
-    const waterTempEl = document.getElementById("waterTemp");
-    const airTempEl = document.getElementById("airTemp");
-    const humidityEl = document.getElementById("humidity");
-    const statusEl = document.getElementById("status");
+const phEl = document.getElementById("ph");
+const ntuEl = document.getElementById("ntu");
+const waterTempEl = document.getElementById("waterTemp");
+const airTempEl = document.getElementById("airTemp");
+const statusEl = document.getElementById("status");
 
-    const valveCard = document.getElementById("valveCard");
-    const valveStatusEl = document.getElementById("valveStatus");
-    const feedStatusCard = document.getElementById("feedStatusCard");
-    const feedStatusEl = document.getElementById("feedStatus");
+const valveCard = document.getElementById("valveCard");
+const valveStatusEl = document.getElementById("valveStatus");
+const feedStatusCard = document.getElementById("feedStatusCard");
+const feedStatusEl = document.getElementById("feedStatus");
 
-    const modeSelect = document.getElementById("modeSelect");
-    const manualControls = document.getElementById("manualControls");
-    const feedButton = document.getElementById("feedButton");
-    const valveButton = document.getElementById("valveButton");
+const modeSelect = document.getElementById("modeSelect");
+const manualControls = document.getElementById("manualControls");
+const feedButton = document.getElementById("feedButton");
+const valveButton = document.getElementById("valveButton");
 
-    loginBtn.addEventListener("click", () => {
-      signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value)
-        .then(() => {
-          loginForm.style.display = "none";
-          dashboard.style.display = "block";
-          initDashboard();
-        })
-        .catch(err => loginStatus.innerText = err.message);
+const logsEl = document.getElementById("logs");
+
+// ================== Login / Logout ==================
+loginBtn.addEventListener("click", () => {
+  signInWithEmailAndPassword(auth, emailInput.value, passwordInput.value)
+    .then(() => {
+      loginForm.style.display = "none";
+      dashboard.style.display = "block";
+      initDashboard();
+    })
+    .catch(err => loginStatus.innerText = err.message);
+});
+
+logoutBtn.addEventListener("click", () => {
+  signOut(auth).then(() => {
+    dashboard.style.display = "none";
+    loginForm.style.display = "block";
+  });
+});
+
+// ================== Logging Function ==================
+function addLog(type, reason = "") {
+  const now = new Date();
+  const timestamp = now.toLocaleString();
+  let message = "";
+
+  if(type === "Feed") message = `Feed done at ${timestamp}`;
+  else if(type === "Valve") {
+    message = reason ? `Valve opened at ${timestamp} (${reason})` : `Valve opened at ${timestamp}`;
+  }
+
+  const logRef = ref(database, `HitoFarm/Logs`);
+  get(logRef).then(snapshot => {
+    let currentLogs = snapshot.exists() ? snapshot.val() : [];
+    currentLogs.push(message);
+    set(logRef, currentLogs);
+
+    // Display latest 10 logs
+    logsEl.innerHTML = '';
+    currentLogs.slice(-10).reverse().forEach(l => {
+      const div = document.createElement("div");
+      div.innerText = l;
+      logsEl.appendChild(div);
     });
+  });
+}
 
-    logoutBtn.addEventListener("click", () => {
-      signOut(auth).then(() => {
-        dashboard.style.display = "none";
-        loginForm.style.display = "block";
-      });
-    });
-
-    function initDashboard() {
-
-      onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
-        if (snap.exists()) phEl.innerText = snap.val().toFixed(2);
-      });
-
-      onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
-        if (snap.exists()) {
-          const ntu = snap.val();
-          ntuEl.innerText = ntu + " NTU";
-
-          if (ntu <= 50) {
-            statusEl.innerText = "Safe";
-            statusEl.style.color = "#22c55e";
-          } else {
-            statusEl.innerText = "Contaminated";
-            statusEl.style.color = "#f87171";
-          }
-        }
-      });
-
-      onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => {
-        if (snap.exists()) waterTempEl.innerText = snap.val() + " °C";
-      });
-
-      onValue(ref(database, "HitoFarm/WaterQuality/AirTemperature"), snap => {
-        if (snap.exists()) airTempEl.innerText = snap.val() + " °C";
-      });
-
-      onValue(ref(database, "HitoFarm/WaterQuality/Humidity"), snap => {
-        if (snap.exists()) humidityEl.innerText = snap.val() + " %";
-      });
-
-      onValue(ref(database, "HitoFarm/ControlMode"), snap => {
-        if (snap.exists()) {
-          const mode = snap.val();
-          modeSelect.value = mode;
-          const manual = mode === "manual";
-          manualControls.style.display = manual ? "block" : "none";
-          valveCard.style.display = manual ? "block" : "none";
-          feedStatusCard.style.display = manual ? "block" : "none";
-        }
-      });
-
-      onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => {
-        if (snap.exists()) valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
-      });
-
-      onValue(ref(database, "HitoFarm/Manual/Feed"), snap => {
-        if (snap.exists()) feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
-      });
-
-      modeSelect.addEventListener("change", () => {
-        set(ref(database, "HitoFarm/ControlMode"), modeSelect.value);
-      });
-
-      feedButton.addEventListener("click", () => {
-        set(ref(database, "HitoFarm/Manual/Feed"), true);
-      });
-
-      valveButton.addEventListener("click", async () => {
-        const snap = await get(ref(database, "HitoFarm/Manual/Relay1Toggle"));
-        set(ref(database, "HitoFarm/Manual/Relay1Toggle"), !snap.val());
-      });
+// ================== Initialize Dashboard ==================
+function initDashboard() {
+  // ====== pH ======
+  onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
+    if (snap.exists()) {
+      const val = snap.val().toFixed(2);
+      phEl.innerText = val;
+      if(val >= 6 && val <= 8) phEl.style.color = "#22c55e"; // green
+      else if(val >=5.5 && val <6 || val>8 && val<=8.5) phEl.style.color = "#facc15"; // yellow
+      else phEl.style.color = "#f87171"; // red
     }
-  </script>
+  });
 
-  <style>
-    body { background:#0f172a;font-family:Arial;color:white;padding:20px }
-    h1 { margin-bottom:20px }
-    .container{display:flex;flex-wrap:wrap;gap:15px}
-    .card{background:#020617;border-radius:12px;padding:20px;width:260px}
-    .card h2{font-size:18px;color:#94a3b8}
-    .value{font-size:36px;font-weight:bold}
-    button,select,input{margin-top:10px;padding:12px;border-radius:8px;border:none;width:100%}
-    button{background:#3b82f6;color:white;font-size:18px}
-    select,input{background:#1e293b;color:white}
-    .manual-controls,.valve-card,#dashboard{display:none}
-  </style>
+  // ====== NTU ======
+  onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
+    if (snap.exists()) {
+      const val = snap.val();
+      ntuEl.innerText = val + " NTU";
+      if(val >=0 && val <=50) ntuEl.style.color = "#22c55e";
+      else if(val >50 && val <=70) ntuEl.style.color = "#facc15";
+      else ntuEl.style.color = "#f87171";
+
+      if(val <= 50) {
+        statusEl.innerText = "Safe";
+        statusEl.style.color = "#22c55e";
+      } else {
+        statusEl.innerText = "Contaminated";
+        statusEl.style.color = "#f87171";
+      }
+    }
+  });
+
+  // ====== Water Temp ======
+  onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => {
+    if(snap.exists()){
+      const val = snap.val();
+      waterTempEl.innerText = val + " °C";
+      if(val >=23 && val <=30) waterTempEl.style.color = "#22c55e";
+      else if(val >=21 && val <23 || val>30 && val<=32) waterTempEl.style.color = "#facc15";
+      else waterTempEl.style.color = "#f87171";
+    }
+  });
+
+  // ====== Air Temp ======
+  onValue(ref(database, "HitoFarm/WaterQuality/AirTemperature"), snap => {
+    if(snap.exists()) airTempEl.innerText = snap.val() + " °C";
+  });
+
+  // ====== Control Mode ======
+  onValue(ref(database, "HitoFarm/ControlMode"), snap => {
+    if (snap.exists()) {
+      const mode = snap.val();
+      modeSelect.value = mode;
+      const manual = mode === "manual";
+      manualControls.style.display = manual ? "block" : "none";
+      valveCard.style.display = manual ? "block" : "none";
+      feedStatusCard.style.display = manual ? "block" : "none";
+      logsEl.parentElement.style.display = manual ? "none" : "block";
+    }
+  });
+
+  // ====== Valve Status (Automatic Logging for Contamination) ======
+  onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => {
+    if(snap.exists()){
+      valveStatusEl.innerText = snap.val() ? "OPEN" : "OFF";
+
+      if(modeSelect.value === "automatic" && snap.val()){
+        // Check NTU to see if contamination triggered it
+        get(ref(database, "HitoFarm/WaterQuality/TurbidityNTU")).then(ntuSnap => {
+          if(ntuSnap.exists()){
+            const ntuVal = ntuSnap.val();
+            if(ntuVal > 50) addLog("Valve", "due to contamination");
+            else addLog("Valve");
+          }
+        });
+      }
+    }
+  });
+
+  // ====== Feed Status (Automatic Logging) ======
+  onValue(ref(database, "HitoFarm/Manual/Feed"), snap => {
+    if(snap.exists()){
+      feedStatusEl.innerText = snap.val() ? "ON" : "OFF";
+      if(modeSelect.value === "automatic" && snap.val()) addLog("Feed");
+    }
+  });
+
+  // ====== Mode change ======
+  modeSelect.addEventListener("change", () => {
+    set(ref(database, "HitoFarm/ControlMode"), modeSelect.value);
+  });
+
+  // ====== Manual Buttons ======
+  feedButton.addEventListener("click", () => {
+    set(ref(database, "HitoFarm/Manual/Feed"), true);
+  });
+
+  valveButton.addEventListener("click", async () => {
+    const snap = await get(ref(database, "HitoFarm/Manual/Relay1Toggle"));
+    set(ref(database, "HitoFarm/Manual/Relay1Toggle"), !snap.val());
+  });
+}
+</script>
+
+<style>
+body { background:#0f172a;font-family:Arial;color:white;padding:20px }
+h1 { margin-bottom:20px }
+.container{display:flex;flex-wrap:wrap;gap:15px}
+.card{background:#020617;border-radius:12px;padding:20px;width:260px}
+.card h2{font-size:18px;color:#94a3b8}
+.value{font-size:36px;font-weight:bold}
+.legend{font-size:13px;color:#94a3b8;margin-top:8px}
+.legend div{margin-top:3px;display:flex;align-items:center}
+.legend span{width:15px;height:15px;display:inline-block;margin-right:5px;border-radius:3px}
+button,select,input{margin-top:10px;padding:12px;border-radius:8px;border:none;width:100%}
+button{background:#3b82f6;color:white;font-size:18px}
+select,input{background:#1e293b;color:white}
+.manual-controls,.valve-card,#dashboard{display:none}
+</style>
 </head>
 
 <body>
-  <h1>🌊 Hito Farm Realtime Dashboard</h1>
+<h1>🌊 Hito Farm Realtime Dashboard</h1>
 
-  <div id="loginForm" class="card">
-    <h2>Login</h2>
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Password">
-    <button id="loginBtn">Login</button>
-    <div id="loginStatus"></div>
-  </div>
+<div id="loginForm" class="card">
+  <h2>Login</h2>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button id="loginBtn">Login</button>
+  <div id="loginStatus"></div>
+</div>
 
-  <div id="dashboard">
-    <button id="logoutBtn">Logout</button>
-    <div class="container">
-      <div class="card"><h2>pH</h2><div class="value" id="ph">--</div></div>
-      <div class="card"><h2>NTU</h2><div class="value" id="ntu">--</div></div>
-      <div class="card"><h2>Water Temp</h2><div class="value" id="waterTemp">--</div></div>
-      <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
-      <div class="card"><h2>Humidity</h2><div class="value" id="humidity">--</div></div>
-      <div class="card"><h2>Water Quality</h2><div class="value" id="status">--</div></div>
+<div id="dashboard">
+  <button id="logoutBtn">Logout</button>
 
-      <div class="card valve-card" id="valveCard">
-        <h2>Valve</h2><div class="value" id="valveStatus">--</div>
-      </div>
-      <div class="card valve-card" id="feedStatusCard">
-        <h2>Feed</h2><div class="value" id="feedStatus">--</div>
-      </div>
-    </div>
-
-    <h2>Control Mode</h2>
+  <div class="container">
     <div class="card">
-      <select id="modeSelect">
-        <option value="automatic">Automatic</option>
-        <option value="manual">Manual</option>
-      </select>
-      <div class="manual-controls" id="manualControls">
-        <button id="feedButton">Feed Fish</button>
-        <button id="valveButton">Toggle Valve</button>
+      <h2>pH</h2>
+      <div class="value" id="ph">--</div>
+      <div class="legend">
+        <div><span style="background:#22c55e"></span>6–8</div>
+        <div><span style="background:#facc15"></span>5.5–5.9 or 8.1–8.5</div>
+        <div><span style="background:#f87171"></span><5.5 or >8.5</div>
       </div>
     </div>
+
+    <div class="card">
+      <h2>NTU</h2>
+      <div class="value" id="ntu">--</div>
+      <div class="legend">
+        <div><span style="background:#22c55e"></span>0–50</div>
+        <div><span style="background:#facc15"></span>51–70</div>
+        <div><span style="background:#f87171"></span>>70</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Water Temp</h2>
+      <div class="value" id="waterTemp">--</div>
+      <div class="legend">
+        <div><span style="background:#22c55e"></span>23–30 °C</div>
+        <div><span style="background:#facc15"></span>21–22.9 or 30.1–32</div>
+        <div><span style="background:#f87171"></span><21 or >32</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Air Temp</h2>
+      <div class="value" id="airTemp">--</div>
+    </div>
+
+    <div class="card">
+      <h2>Water Quality</h2>
+      <div class="value" id="status">--</div>
+    </div>
+
+    <div class="card valve-card" id="valveCard">
+      <h2>Valve</h2>
+      <div class="value" id="valveStatus">--</div>
+    </div>
+
+    <div class="card valve-card" id="feedStatusCard">
+      <h2>Feed</h2>
+      <div class="value" id="feedStatus">--</div>
+    </div>
+
+    <div class="card" id="logsCard">
+      <h2>Automatic Logs</h2>
+      <div id="logs" style="max-height:200px;overflow-y:auto;font-size:14px;color:#94a3b8"></div>
+    </div>
   </div>
+
+  <h2>Control Mode</h2>
+  <div class="card">
+    <select id="modeSelect">
+      <option value="automatic">Automatic</option>
+      <option value="manual">Manual</option>
+    </select>
+    <div class="manual-controls" id="manualControls">
+      <button id="feedButton">Feeds</button>
+      <button id="valveButton">Toggle Valve</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
