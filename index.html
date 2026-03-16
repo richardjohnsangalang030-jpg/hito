@@ -42,22 +42,17 @@ const nh3El = document.getElementById("nh3");
 
 const valveCard = document.getElementById("valveCard");
 const valveStatusEl = document.getElementById("valveStatus");
+const valveSwitch = document.getElementById("valveSwitch");
 const feedStatusCard = document.getElementById("feedStatusCard");
 const feedStatusEl = document.getElementById("feedStatus");
-
-const manualControls = document.getElementById("manualControls");
 const feedButton = document.getElementById("feedButton");
-const valveButton = document.getElementById("valveButton");
+
+const toggleMode = document.getElementById("toggleMode");
 
 const logsEl = document.getElementById("logs");
-const viewAllLogsBtn = document.getElementById("viewAllLogsBtn");
+const viewLogsBtn = document.getElementById("viewLogsBtn");
 
-const modeSwitch = document.getElementById("modeSwitch");
-const modeLabel = document.getElementById("modeLabel");
-
-let currentMode = "automatic"; 
-let allLogs = [];
-let showingAll = false;
+let showAllLogs = false;
 
 /* ====== LOGIN ====== */
 loginBtn.addEventListener("click", () => {
@@ -90,20 +85,27 @@ function addLog(type, reason="") {
     let currentLogs = snapshot.exists()?snapshot.val():[];
     currentLogs.push(message);
     set(logRef,currentLogs);
-    allLogs = currentLogs;
-    displayLogs();
+    displayLogs(currentLogs);
   });
 }
 
-function displayLogs(){
+function displayLogs(logsArray){
   logsEl.innerHTML='';
-  let logsToShow = showingAll ? allLogs : allLogs.slice(-5); // last 5 by default
-  logsToShow.reverse().forEach(l=>{
+  let logsToShow = showAllLogs ? logsArray.slice().reverse() : logsArray.slice(-5).reverse();
+  logsToShow.forEach(l=>{
     const div = document.createElement("div");
     div.innerText = l;
     logsEl.appendChild(div);
   });
 }
+
+viewLogsBtn.addEventListener("click", async ()=>{
+  showAllLogs = !showAllLogs;
+  const snap = await get(ref(database,"HitoFarm/Logs"));
+  const logsArray = snap.exists()?snap.val():[];
+  displayLogs(logsArray);
+  viewLogsBtn.innerText = showAllLogs ? "Unview All Logs" : "View All Logs";
+});
 
 /* ====== DASHBOARD ====== */
 function initDashboard(){
@@ -131,25 +133,29 @@ function initDashboard(){
       waterTempEl.innerText=val+" °C";
       if(val>=23 && val<=30) waterTempEl.style.color="#22c55e";
       else if(val>=21 && val<23 || val>30 && val<=32) waterTempEl.style.color="#facc15";
-      else waterTempEl.style.color="#f87171";
+      else val.style.color="#f87171";
       updateNH3(currentPH,currentTemp);
     }
   });
 
   function updateNH3(ph,tempC){
-    const tempK=tempC+273.15;
-    const pKa=0.09018+(2729.92/tempK);
-    const f=1/(Math.pow(10,(pKa-ph))+1);
-    const percent=f*100;
-    nh3El.innerText=percent.toFixed(2)+" %";
-    if(percent<=2) nh3El.style.color="#22c55e";
-    else if(percent>2 && percent<5) nh3El.style.color="#facc15";
-    else nh3El.style.color="#f87171";
+    get(ref(database,"HitoFarm/ControlMode")).then(snap=>{
+        const mode = snap.exists()?snap.val():"automatic";
+        const tempK=tempC+273.15;
+        const pKa=0.09018+(2729.92/tempK);
+        const f=1/(Math.pow(10,(pKa-ph))+1);
+        const percent=f*100;
+        nh3El.innerText=percent.toFixed(2)+" %";
+        if(percent<=2) nh3El.style.color="#22c55e";
+        else if(percent>2 && percent<5) nh3El.style.color="#facc15";
+        else nh3El.style.color="#f87171";
 
-    if(currentMode === "automatic"){
-      const relayRef=ref(database,"HitoFarm/Manual/Relay1Toggle");
-      set(relayRef, percent>=5);
-    }
+        if(mode === "automatic"){
+            const relayRef=ref(database,"HitoFarm/Manual/Relay1Toggle");
+            if(percent>=5) set(relayRef,true);
+            else set(relayRef,false);
+        }
+    });
   }
 
   // NTU
@@ -174,111 +180,128 @@ function initDashboard(){
     if(snap.exists()) airTempEl.innerText = snap.val()+" °C";
   });
 
-  // Mode
+  // Control Mode switch
   onValue(ref(database,"HitoFarm/ControlMode"), snap=>{
     if(snap.exists()){
       const mode = snap.val();
-      currentMode = mode;
-      modeSwitch.checked = (mode==="manual");
-      modeLabel.innerText = mode.charAt(0).toUpperCase()+mode.slice(1);
-      const manual = (mode==="manual");
-      manualControls.style.display = manual?"flex":"none";
+      toggleMode.checked = mode === "manual";
+      const manual = mode==="manual";
       valveCard.style.display = manual?"block":"none";
       feedStatusCard.style.display = manual?"block":"none";
       logsEl.parentElement.style.display = manual?"none":"block";
     }
   });
 
-  modeSwitch.addEventListener("change", ()=>{
-    const mode = modeSwitch.checked ? "manual" : "automatic";
-    currentMode = mode;
-    modeLabel.innerText = mode.charAt(0).toUpperCase()+mode.slice(1);
-    set(ref(database,"HitoFarm/ControlMode"), mode);
+  toggleMode.addEventListener("change", ()=>{
+    set(ref(database,"HitoFarm/ControlMode"), toggleMode.checked ? "manual":"automatic");
   });
 
-  // Valve
-  valveButton.addEventListener("click", async ()=>{
-    if(currentMode!=="manual") return;
-    const snap = await get(ref(database,"HitoFarm/Manual/Relay1Toggle"));
-    const newStatus = !snap.val();
-    set(ref(database,"HitoFarm/Manual/Relay1Toggle"), newStatus);
-    valveButton.innerText = newStatus ? "Valve ON" : "Valve OFF";
-    valveButton.style.background = newStatus ? "#ef4444" : "#3b82f6";
-    addLog("Valve", newStatus ? "ON" : "OFF");
-  });
-
+  // Valve & Feed Status
   onValue(ref(database,"HitoFarm/Manual/Relay1Toggle"), snap=>{
     if(snap.exists()) {
       const status = snap.val();
-      valveStatusEl.innerText = status?"OPEN":"OFF";
-      valveButton.innerText = status ? "Valve ON" : "Valve OFF"; 
-      valveButton.style.background = status ? "#ef4444" : "#3b82f6"; 
+      valveStatusEl.innerText = status ? "OPEN" : "OFF";
+      valveSwitch.checked = status;
     }
   });
 
-  // Feed
   onValue(ref(database,"HitoFarm/Manual/Feed"), snap=>{
     if(snap.exists()) feedStatusEl.innerText = snap.val()?"ON":"OFF";
   });
-  feedButton.addEventListener("click", ()=>{
-    if(currentMode!=="manual") return;
+
+  // Valve fully manual
+  valveSwitch.addEventListener("change", ()=>{
+    const status = valveSwitch.checked;
+    set(ref(database,"HitoFarm/Manual/Relay1Toggle"), status);
+    addLog("Valve", status ? "ON" : "OFF");
+  });
+
+  // Feed button
+  feedButton.addEventListener("click", ()=> {
     set(ref(database,"HitoFarm/Manual/Feed"), true);
     addLog("Feed");
   });
 
   // Load logs
   get(ref(database,"HitoFarm/Logs")).then(snap=>{
-    allLogs = snap.exists()?snap.val():[];
-    displayLogs();
-  });
-
-  // Toggle View All / View Less
-  viewAllLogsBtn.addEventListener("click", ()=>{
-    showingAll = !showingAll;
-    displayLogs();
-    viewAllLogsBtn.innerText = showingAll ? "View Less" : "View All Logs";
+    let currentLogs = snap.exists()?snap.val():[];
+    displayLogs(currentLogs);
   });
 }
 </script>
 
 <style>
-body{background:#0f172a;font-family:Arial;color:white;padding:20px;}
-h1{margin-bottom:20px;}
+body{
+  background:#f5f5f5;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color:#1f2937;
+  padding:20px;
+}
+h1{margin-bottom:20px; text-align:center; color:#111827;}
 #loginForm{display:flex;justify-content:center;align-items:center;height:90vh;}
-.login-card{background:#020617;padding:40px;border-radius:14px;width:380px;text-align:center;box-shadow:0 0 30px rgba(0,0,0,0.5);}
-.login-card input, .login-card button{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:none;}
-.login-card input{background:#1e293b;color:white;}
-.login-card button{background:#3b82f6;color:white;font-size:18px;cursor:pointer;}
-.login-info{font-size:14px;color:#94a3b8;margin-bottom:20px;}
-.container{display:flex;flex-wrap:wrap;gap:15px}
-.card{background:#020617;border-radius:12px;padding:20px;width:260px}
-.card h2{font-size:18px;color:#94a3b8}
-.value{font-size:36px;font-weight:bold}
-#logoutBtn {position: fixed;bottom: 20px;left: 50%;transform: translateX(-50%);padding: 16px 32px;font-size: 22px;border-radius: 12px;background: #ef4444;color: white;border: none;cursor: pointer;z-index: 1000;}
-#logoutBtn:hover {background: #dc2626;}
-.control-mode-card{display:flex;align-items:center;justify-content:space-between;padding:20px;font-size:20px;}
-.switch {position: relative;display: inline-block;width: 80px;height: 40px;}
-.switch input {display:none;}
-.slider {position:absolute;cursor:pointer;top:0; left:0; right:0; bottom:0;background-color:#ccc;transition:.4s;border-radius: 40px;}
-.slider:before {position:absolute;content:"";height:32px; width:32px;left:4px; bottom:4px;background:white;transition:.4s;border-radius:50%;}
-input:checked + .slider {background-color:#3b82f6;}
-input:checked + .slider:before {transform:translateX(40px);}
-.manual-controls {display:none;margin-top:10px;justify-content:center;gap:20px;}
-.manual-controls button {width:160px;height:90px;font-size:24px;border-radius:12px;color:white;border:none;cursor:pointer;}
-#feedButton {background:#3b82f6;}
-#valveButton {background:#3b82f6;}
-#viewAllLogsBtn{margin-top:8px;background:#3b82f6;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;color:white;font-size:14px;}
+.login-card{background:white;padding:40px;border-radius:14px;width:380px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.1);}
+.login-card input{width:100%;margin-top:10px;padding:12px;border-radius:8px;border:1px solid #d1d5db;background:white;color:#1f2937;}
+.login-card button{
+    width: 65%;
+    margin: 10px auto 0 auto;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    background: #3b82f6;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+}
+.login-card button:hover { background: #2563eb; }
+.login-info{font-size:14px;color:#6b7280;margin-bottom:20px;}
+#dashboard{display:none;}
+.container{display:flex;flex-wrap:wrap;gap:15px;justify-content:center;}
+.card{background:white;border-radius:12px;padding:20px;width:260px;box-shadow:0 2px 10px rgba(0,0,0,0.05);}
+.card h2{font-size:18px;color:#6b7280;margin-bottom:10px;}
+.value{font-size:36px;font-weight:bold;color:#111827;}
+.legend{font-size:13px;color:#6b7280;margin-top:8px}
+.legend div{margin-top:3px;display:flex;align-items:center}
+.legend span{width:15px;height:15px;display:inline-block;margin-right:5px;border-radius:3px}
+.valve-card{display:none;}
+#logoutBtn {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  padding: 16px 32px;
+  font-size: 20px;
+  border-radius: 12px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+  z-index: 1000;
+}
+#logoutBtn:hover { background: #dc2626; }
+#viewLogsBtn{background:#f59e0b;color:white;border:none;padding:8px 12px;margin-top:5px;border-radius:8px;cursor:pointer;}
+.switch {position: relative; display:inline-block; width:60px; height:34px;}
+.switch input{opacity:0;width:0;height:0;}
+.slider {position: absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#d1d5db; transition:.4s; border-radius:34px;}
+.slider:before {position:absolute; content:""; height:26px; width:26px; left:4px; bottom:4px; background:white; transition:.4s; border-radius:50%;}
+input:checked + .slider {background:#3b82f6;}
+input:checked + .slider:before {transform:translateX(26px);}
+.slider:after {content:'OFF';position:absolute;right:8px;top:7px;color:#1f2937;font-size:12px;}
+input:checked + .slider:after {content:'ON'; left:8px; right:auto;}
+button#feedButton{background:#3b82f6;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;margin-top:10px;}
+button#feedButton:hover{background:#2563eb;}
 </style>
 </head>
 
 <body>
-
 <h1>Hito Farm Realtime Dashboard</h1>
 
+<!-- LOGIN -->
 <div id="loginForm">
 <div class="login-card">
 <h2>Hito Farm Monitoring</h2>
-<p class="login-info">This system monitors the water quality of a <b>Hito (Catfish) farm</b>.<br>Tracks pH, turbidity (NTU), temperature, and ammonia (NH₃) for healthy growth.</p>
+<p class="login-info">
+This system monitors the water quality of a <b>Hito (Catfish) farm</b>.<br>
+Tracks pH, turbidity (NTU), temperature, and ammonia (NH₃).
+</p>
 <input id="email" placeholder="User">
 <input id="password" type="password" placeholder="Password">
 <button id="loginBtn">Login</button>
@@ -286,36 +309,99 @@ input:checked + .slider:before {transform:translateX(40px);}
 </div>
 </div>
 
+<!-- DASHBOARD -->
 <div id="dashboard">
-
 <button id="logoutBtn">Logout</button>
 
+<!-- CONTROL MODE SWITCH -->
+<div class="card" style="margin:0 auto 20px auto; text-align:center; max-width:400px;">
+  <h2>Control Mode</h2>
+  <label class="switch">
+    <input type="checkbox" id="toggleMode">
+    <span class="slider"></span>
+  </label>
+</div>
+
 <div class="container">
-  <div class="card"><h2>pH</h2><div class="value" id="ph">--</div></div>
-  <div class="card"><h2>NTU</h2><div class="value" id="ntu">--</div></div>
-  <div class="card"><h2>Water Temp</h2><div class="value" id="waterTemp">--</div></div>
-  <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
-  <div class="card"><h2>Water Quality</h2><div class="value" id="status">--</div></div>
-  <div class="card"><h2>NH₃</h2><div class="value" id="nh3">--</div></div>
-  <div class="card valve-card" id="valveCard"><h2>Valve</h2><div class="value" id="valveStatus">--</div></div>
-  <div class="card valve-card" id="feedStatusCard"><h2>Feed</h2><div class="value" id="feedStatus">--</div></div>
+  <!-- pH Card -->
+  <div class="card">
+    <h2>pH</h2>
+    <div class="value" id="ph">--</div>
+    <div class="legend">
+      <div><span style="background:#22c55e"></span>6–8 (Safe)</div>
+      <div><span style="background:#facc15"></span>5.5–5.9 or 8.1–8.5 (Warning)</div>
+      <div><span style="background:#f87171"></span><5.5 or >8.5 (Danger)</div>
+    </div>
+  </div>
+
+  <!-- NTU Card -->
+  <div class="card">
+    <h2>NTU</h2>
+    <div class="value" id="ntu">--</div>
+    <div class="legend">
+      <div><span style="background:#22c55e"></span>0–200 (Safe)</div>
+      <div><span style="background:#f87171"></span>201+ (Danger)</div>
+    </div>
+  </div>
+
+  <!-- Water Temp Card -->
+  <div class="card">
+    <h2>Water Temp</h2>
+    <div class="value" id="waterTemp">--</div>
+    <div class="legend">
+      <div><span style="background:#22c55e"></span>23–30 °C (Safe)</div>
+      <div><span style="background:#facc15"></span>21–22.9 or 30.1–32 °C (Warning)</div>
+      <div><span style="background:#f87171"></span><21 or >32 °C (Danger)</div>
+    </div>
+  </div>
+
+  <!-- Air Temp -->
+  <div class="card">
+    <h2>Air Temp</h2>
+    <div class="value" id="airTemp">--</div>
+  </div>
+
+  <!-- Water Quality -->
+  <div class="card">
+    <h2>Water Quality</h2>
+    <div class="value" id="status">--</div>
+  </div>
+
+  <!-- NH3 Card -->
+  <div class="card">
+    <h2>NH₃</h2>
+    <div class="value" id="nh3">--</div>
+    <div class="legend">
+      <div><span style="background:#22c55e"></span>0–2% (Safe)</div>
+      <div><span style="background:#facc15"></span>2–5% (Warning)</div>
+      <div><span style="background:#f87171"></span>>5% (Danger)</div>
+    </div>
+  </div>
+
+  <!-- Valve -->
+  <div class="card valve-card" id="valveCard">
+    <h2>Valve</h2>
+    <div class="value" id="valveStatus">--</div>
+    <label class="switch" style="margin-top:10px;">
+      <input type="checkbox" id="valveSwitch">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- Feed -->
+  <div class="card valve-card" id="feedStatusCard">
+    <h2>Feed</h2>
+    <div class="value" id="feedStatus">--</div>
+    <button id="feedButton">Feed</button>
+  </div>
+
+  <!-- Logs -->
   <div class="card" id="logsCard">
     <h2>Automatic Logs</h2>
-    <div id="logs" style="max-height:400px;overflow-y:auto;font-size:14px;color:#94a3b8"></div>
-    <button id="viewAllLogsBtn">View All Logs</button>
+    <div id="logs" style="max-height:200px;overflow-y:auto;font-size:14px;color:#6b7280"></div>
+    <button id="viewLogsBtn">View All Logs</button>
   </div>
 </div>
-
-<h2>Control Mode</h2>
-<div class="card control-mode-card">
-  <label class="switch"><input type="checkbox" id="modeSwitch"><span class="slider round"></span></label>
-  <span id="modeLabel">Automatic</span>
 </div>
-
-<div class="manual-controls" id="manualControls">
-  <button id="feedButton">Feed</button>
-  <button id="valveButton">Valve OFF</button>
-</div>
-
 </body>
 </html>
