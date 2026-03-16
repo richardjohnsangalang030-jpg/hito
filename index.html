@@ -146,7 +146,7 @@ function initDashboard() {
     }
   });
 
-  // ====== NH3 Calculation ======
+  // ====== NH3 Calculation + Relay Control ======
   function updateNH3(ph, tempC) {
     const tempK = tempC + 273.15;
     const pKa = 0.09018 + (2729.92 / tempK);
@@ -157,8 +157,16 @@ function initDashboard() {
 
     // Match legend thresholds
     if(percent <= 2) nh3El.style.color = "#22c55e"; // Safe
-    else if(percent > 2 && percent <= 5) nh3El.style.color = "#facc15"; // Caution
+    else if(percent > 2 && percent < 5) nh3El.style.color = "#facc15"; // Caution
     else nh3El.style.color = "#f87171"; // Dangerous
+
+    // Automatically toggle valve relay if NH3 ≥ 5%
+    const relayRef = ref(database, "HitoFarm/Manual/Relay1Toggle");
+    if(percent >= 5){
+      set(relayRef, true);
+    } else {
+      set(relayRef, false);
+    }
   }
 
   // ====== NTU ======
@@ -166,11 +174,11 @@ function initDashboard() {
     if (snap.exists()) {
       const val = snap.val();
       ntuEl.innerText = val + " NTU";
-      if(val >=0 && val <=50) ntuEl.style.color = "#22c55e";
-      else if(val >50 && val <=70) ntuEl.style.color = "#facc15";
-      else ntuEl.style.color = "#f87171";
 
-      if(val <= 50) {
+      if(val >= 0 && val <= 200) ntuEl.style.color = "#22c55e"; // Safe
+      else ntuEl.style.color = "#f87171"; // Contaminated
+
+      if(val <= 200) {
         statusEl.innerText = "Safe";
         statusEl.style.color = "#22c55e";
       } else {
@@ -207,7 +215,7 @@ function initDashboard() {
         get(ref(database, "HitoFarm/WaterQuality/TurbidityNTU")).then(ntuSnap => {
           if(ntuSnap.exists()){
             const ntuVal = ntuSnap.val();
-            if(ntuVal > 50) addLog("Valve", "due to contamination");
+            if(ntuVal > 200) addLog("Valve", "due to contamination");
             else addLog("Valve");
           }
         });
@@ -293,9 +301,8 @@ select,input{background:#1e293b;color:white}
       <h2>NTU</h2>
       <div class="value" id="ntu">--</div>
       <div class="legend">
-        <div><span style="background:#22c55e"></span>0–50</div>
-        <div><span style="background:#facc15"></span>51–70</div>
-        <div><span style="background:#f87171"></span>>70</div>
+        <div><span style="background:#22c55e"></span>0–200</div>
+        <div><span style="background:#f87171"></span>201+</div>
       </div>
     </div>
 
