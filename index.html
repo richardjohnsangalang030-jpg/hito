@@ -37,6 +37,7 @@ const ntuEl = document.getElementById("ntu");
 const waterTempEl = document.getElementById("waterTemp");
 const airTempEl = document.getElementById("airTemp");
 const statusEl = document.getElementById("status");
+const nh3El = document.getElementById("nh3");
 
 const valveCard = document.getElementById("valveCard");
 const valveStatusEl = document.getElementById("valveStatus");
@@ -102,13 +103,8 @@ function displayLogs(logsArray) {
 
 // ================== Refresh Logs Button (Clear All Logs) ==================
 refreshLogsBtn.addEventListener("click", async () => {
-  // Clear all logs in Firebase
   await set(ref(database, `HitoFarm/Logs`), []);
-
-  // Clear display
   logsEl.innerHTML = '';
-
-  // Optional message
   const div = document.createElement("div");
   div.innerText = "All logs cleared!";
   div.style.color = "#f59e0b";
@@ -117,16 +113,53 @@ refreshLogsBtn.addEventListener("click", async () => {
 
 // ================== Initialize Dashboard ==================
 function initDashboard() {
+  let currentPH = 7;
+  let currentTemp = 24;
+
   // ====== pH ======
   onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
     if (snap.exists()) {
       const val = snap.val().toFixed(2);
+      currentPH = val;
       phEl.innerText = val;
       if(val >= 6 && val <= 8) phEl.style.color = "#22c55e";
       else if(val >=5.5 && val <6 || val>8 && val<=8.5) phEl.style.color = "#facc15";
       else phEl.style.color = "#f87171";
+
+      // Update NH3 fraction when pH changes
+      updateNH3(currentPH, currentTemp);
     }
   });
+
+  // ====== Water Temp ======
+  onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => {
+    if(snap.exists()){
+      const val = snap.val();
+      currentTemp = val;
+      waterTempEl.innerText = val + " °C";
+      if(val >=23 && val <=30) waterTempEl.style.color = "#22c55e";
+      else if(val >=21 && val <23 || val>30 && val<=32) waterTempEl.style.color = "#facc15";
+      else waterTempEl.style.color = "#f87171";
+
+      // Update NH3 fraction when temp changes
+      updateNH3(currentPH, currentTemp);
+    }
+  });
+
+  // ====== NH3 Calculation ======
+  function updateNH3(ph, tempC) {
+    const tempK = tempC + 273.15;
+    const pKa = 0.09018 + (2729.92 / tempK);
+    const f = 1 / (Math.pow(10, (pKa - ph)) + 1); // fraction of NH3
+
+    const percent = f * 100;
+    nh3El.innerText = percent.toFixed(2) + " %";
+
+    // Match legend thresholds
+    if(percent <= 2) nh3El.style.color = "#22c55e"; // Safe
+    else if(percent > 2 && percent <= 5) nh3El.style.color = "#facc15"; // Caution
+    else nh3El.style.color = "#f87171"; // Dangerous
+  }
 
   // ====== NTU ======
   onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
@@ -144,17 +177,6 @@ function initDashboard() {
         statusEl.innerText = "Contaminated";
         statusEl.style.color = "#f87171";
       }
-    }
-  });
-
-  // ====== Water Temp ======
-  onValue(ref(database, "HitoFarm/WaterQuality/WaterTemperature"), snap => {
-    if(snap.exists()){
-      const val = snap.val();
-      waterTempEl.innerText = val + " °C";
-      if(val >=23 && val <=30) waterTempEl.style.color = "#22c55e";
-      else if(val >=21 && val <23 || val>30 && val<=32) waterTempEl.style.color = "#facc15";
-      else waterTempEl.style.color = "#f87171";
     }
   });
 
@@ -243,7 +265,7 @@ select,input{background:#1e293b;color:white}
 </head>
 
 <body>
-<h1>🌊 Hito Farm Realtime Dashboard</h1>
+<h1>Hito Farm Realtime Dashboard</h1>
 
 <div id="loginForm" class="card">
   <h2>Login</h2>
@@ -295,6 +317,17 @@ select,input{background:#1e293b;color:white}
     <div class="card">
       <h2>Water Quality</h2>
       <div class="value" id="status">--</div>
+    </div>
+
+    <!-- NH3 Card -->
+    <div class="card">
+      <h2>NH₃</h2>
+      <div class="value" id="nh3">--</div>
+      <div class="legend">
+        <div><span style="background:#22c55e"></span>Safe (≤2%)</div>
+        <div><span style="background:#facc15"></span>Caution (2–5%)</div>
+        <div><span style="background:#f87171"></span>Danger (>5%)</div>
+      </div>
     </div>
 
     <div class="card valve-card" id="valveCard">
