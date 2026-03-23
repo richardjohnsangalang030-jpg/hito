@@ -43,9 +43,14 @@ const nh3El = document.getElementById("nh3");
 const valveCard = document.getElementById("valveCard");
 const valveStatusEl = document.getElementById("valveStatus");
 const valveSwitch = document.getElementById("valveSwitch");
+
 const feedStatusCard = document.getElementById("feedStatusCard");
 const feedStatusEl = document.getElementById("feedStatus");
 const feedButton = document.getElementById("feedButton");
+
+const heaterCard = document.getElementById("heaterCard");
+const heaterStatusEl = document.getElementById("heaterStatus");
+const heaterSwitch = document.getElementById("heaterSwitch");
 
 const toggleMode = document.getElementById("toggleMode");
 
@@ -79,6 +84,7 @@ function addLog(type, reason="") {
   let message="";
   if(type==="Feed") message=`Feed done at ${timestamp}`;
   else if(type==="Valve") message = reason ? `Valve ${reason} at ${timestamp}` : `Valve toggled at ${timestamp}`;
+  else if(type==="Heater") message = reason ? `Heater ${reason} at ${timestamp}` : `Heater toggled at ${timestamp}`;
 
   const logRef = ref(database,"HitoFarm/Logs");
   get(logRef).then(snapshot=>{
@@ -186,8 +192,9 @@ function initDashboard(){
       const mode = snap.val();
       toggleMode.checked = mode === "manual";
       const manual = mode==="manual";
-      valveCard.style.display = manual?"block":"none";
-      feedStatusCard.style.display = manual?"block":"none";
+      document.querySelectorAll('.valve-card').forEach(el=>{
+        el.style.display = manual ? "block" : "none";
+      });
       logsEl.parentElement.style.display = manual?"none":"block";
     }
   });
@@ -196,20 +203,30 @@ function initDashboard(){
     set(ref(database,"HitoFarm/ControlMode"), toggleMode.checked ? "manual":"automatic");
   });
 
-  // Valve & Feed Status
+  // Valve Status
   onValue(ref(database,"HitoFarm/Manual/Relay1Toggle"), snap=>{
     if(snap.exists()) {
       const status = snap.val();
-      valveStatusEl.innerText = status ? "OPEN" : "OFF";
+      valveStatusEl.innerText = status ? "ON" : "OFF";
       valveSwitch.checked = status;
     }
   });
 
+  // Feed Status
   onValue(ref(database,"HitoFarm/Manual/Feed"), snap=>{
     if(snap.exists()) feedStatusEl.innerText = snap.val()?"ON":"OFF";
   });
 
-  // Valve fully manual
+  // Heater Status
+  onValue(ref(database,"HitoFarm/Manual/Relay3Toggle"), snap=>{
+    if(snap.exists()){
+      const status = snap.val();
+      heaterStatusEl.innerText = status ? "ON" : "OFF";
+      heaterSwitch.checked = status;
+    }
+  });
+
+  // Valve manual control
   valveSwitch.addEventListener("change", ()=>{
     const status = valveSwitch.checked;
     set(ref(database,"HitoFarm/Manual/Relay1Toggle"), status);
@@ -220,6 +237,13 @@ function initDashboard(){
   feedButton.addEventListener("click", ()=> {
     set(ref(database,"HitoFarm/Manual/Feed"), true);
     addLog("Feed");
+  });
+
+  // Heater manual control
+  heaterSwitch.addEventListener("change", ()=>{
+    const status = heaterSwitch.checked;
+    set(ref(database,"HitoFarm/Manual/Relay3Toggle"), status);
+    addLog("Heater", status ? "ON" : "OFF");
   });
 
   // Load logs
@@ -262,7 +286,8 @@ h1{margin-bottom:20px; text-align:center; color:#111827;}
 .legend{font-size:13px;color:#6b7280;margin-top:8px}
 .legend div{margin-top:3px;display:flex;align-items:center}
 .legend span{width:15px;height:15px;display:inline-block;margin-right:5px;border-radius:3px}
-.valve-card{display:none;}
+.valve-card {display:none; flex:1; max-width:180px;}
+.manual-controls .card {flex:1; min-width:150px;}
 #logoutBtn {
   position: fixed;
   bottom: 20px;
@@ -361,12 +386,6 @@ Tracks pH, turbidity (NTU), temperature, and ammonia (NH₃).
     <div class="value" id="airTemp">--</div>
   </div>
 
-  <!-- Water Quality -->
-  <div class="card">
-    <h2>Water Quality</h2>
-    <div class="value" id="status">--</div>
-  </div>
-
   <!-- NH3 Card -->
   <div class="card">
     <h2>NH₃</h2>
@@ -378,6 +397,22 @@ Tracks pH, turbidity (NTU), temperature, and ammonia (NH₃).
     </div>
   </div>
 
+  <!-- Water Quality -->
+  <div class="card">
+    <h2>Water Quality</h2>
+    <div class="value" id="status">--</div>
+  </div>
+
+  <!-- Logs -->
+  <div class="card" id="logsCard">
+    <h2>Automatic Logs</h2>
+    <div id="logs" style="max-height:200px;overflow-y:auto;font-size:14px;color:#6b7280"></div>
+    <button id="viewLogsBtn">View All Logs</button>
+  </div>
+</div>
+
+<!-- Manual Controls Row -->
+<div class="manual-controls" style="display:flex;justify-content:center;gap:15px;margin-top:20px;">
   <!-- Valve -->
   <div class="card valve-card" id="valveCard">
     <h2>Valve</h2>
@@ -395,13 +430,16 @@ Tracks pH, turbidity (NTU), temperature, and ammonia (NH₃).
     <button id="feedButton">Feed</button>
   </div>
 
-  <!-- Logs -->
-  <div class="card" id="logsCard">
-    <h2>Automatic Logs</h2>
-    <div id="logs" style="max-height:200px;overflow-y:auto;font-size:14px;color:#6b7280"></div>
-    <button id="viewLogsBtn">View All Logs</button>
+  <!-- Heater -->
+  <div class="card valve-card" id="heaterCard">
+    <h2>Heater</h2>
+    <div class="value" id="heaterStatus">--</div>
+    <label class="switch" style="margin-top:10px;">
+      <input type="checkbox" id="heaterSwitch">
+      <span class="slider"></span>
+    </label>
   </div>
 </div>
-</div>
+
 </body>
 </html>
