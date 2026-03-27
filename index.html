@@ -128,6 +128,36 @@ function initDashboard() {
   let currentPH = 7;
   let currentTemp = 24;
 
+  // --- NEW: LOAD SCHEDULES FROM FIREBASE ---
+  get(ref(database, "HitoFarm/Schedules")).then(snap => {
+    if (snap.exists()) {
+      const data = snap.val();
+      if (data.wcTime) document.getElementById("wcTime").value = data.wcTime;
+      if (data.wcDuration) document.getElementById("wcDuration").value = data.wcDuration;
+      if (data.feedFreq) {
+        document.getElementById("feedFrequency").value = data.feedFreq;
+        updateInputs(data.feedTimes); 
+      }
+    } else {
+      updateInputs(); 
+    }
+  });
+
+  // --- NEW: SAVE SCHEDULES TO FIREBASE ---
+  const saveSchedules = () => {
+    const feedTimes = Array.from(document.querySelectorAll(".time-input")).map(i => i.value);
+    set(ref(database, "HitoFarm/Schedules"), {
+      wcTime: document.getElementById("wcTime").value,
+      wcDuration: document.getElementById("wcDuration").value,
+      feedFreq: document.getElementById("feedFrequency").value,
+      feedTimes: feedTimes
+    });
+  };
+
+  // Attach Save Events
+  document.getElementById("wcTime").addEventListener("change", saveSchedules);
+  document.getElementById("wcDuration").addEventListener("change", saveSchedules);
+
   // Realtime Clock and Schedulers
   setInterval(() => {
     const now = new Date();
@@ -184,7 +214,7 @@ function initDashboard() {
     setTimeout(() => {
       set(ref(database, "HitoFarm/Manual/Feed"), false);
       setTimeout(() => { isFeedingExecuting = false; }, 60000);
-    }, 5000); // 5-second feeding duration
+    }, 5000); 
   }
 
   /* --- Firebase Realtime Listeners --- */
@@ -259,15 +289,18 @@ function initDashboard() {
   heaterSwitch.addEventListener("change", () => { set(ref(database, "HitoFarm/Manual/Relay3Toggle"), heaterSwitch.checked); addLog("Heater", heaterSwitch.checked ? "ON" : "OFF"); });
 
   const feedFreqSelect = document.getElementById("feedFrequency");
-  function updateInputs() {
+  function updateInputs(savedTimes = null) {
     const container = document.getElementById("timeInputsContainer"); container.innerHTML = '';
     const count = parseInt(feedFreqSelect.value); const defaults = ["08:00", "12:00", "17:00"];
     for(let i = 0; i < count; i++) {
       const input = document.createElement("input"); input.type = "time"; input.className = "time-input";
-      input.value = defaults[i] || "00:00"; container.appendChild(input);
+      input.value = (savedTimes && savedTimes[i]) ? savedTimes[i] : (defaults[i] || "00:00");
+      input.addEventListener("change", saveSchedules); // Save when time changes
+      container.appendChild(input);
     }
   }
-  feedFreqSelect.addEventListener("change", updateInputs); updateInputs();
+  feedFreqSelect.addEventListener("change", () => { updateInputs(); saveSchedules(); });
+  
   logCalendar.addEventListener("change", async () => { const snap = await get(ref(database, "HitoFarm/Logs")); if(snap.exists()) displayLogs(snap.val()); });
   viewLogsBtn.addEventListener("click", async () => { showAllLogs = !showAllLogs; const snap = await get(ref(database, "HitoFarm/Logs")); displayLogs(snap.exists() ? snap.val() : []); viewLogsBtn.innerText = showAllLogs ? "View Recent Only" : "View All Logs"; });
 }
