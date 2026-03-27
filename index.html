@@ -68,6 +68,7 @@ loginBtn.addEventListener("click", () => {
 });
 
 logoutBtn.addEventListener("click", () => {
+  saveSettings(); // Sinisigurado na naka-save bago lumabas
   signOut(auth).then(() => {
     dashboard.style.display = "none";
     loginForm.style.display = "flex";
@@ -123,42 +124,62 @@ function displayLogs(logsArray){
   });
 }
 
+/* ====== SAVE & LOAD SETTINGS (LocalStorage) ====== */
+function saveSettings() {
+    const settings = {
+        wcTime: document.getElementById("wcTime").value,
+        wcDuration: document.getElementById("wcDuration").value,
+        feedFrequency: document.getElementById("feedFrequency").value,
+        feedTimes: Array.from(document.querySelectorAll(".time-input")).map(input => input.value)
+    };
+    localStorage.setItem("hitoFarmSchedule", JSON.stringify(settings));
+}
+
+function loadSettings() {
+    const saved = localStorage.getItem("hitoFarmSchedule");
+    if (saved) {
+        const settings = JSON.parse(saved);
+        document.getElementById("wcTime").value = settings.wcTime;
+        document.getElementById("wcDuration").value = settings.wcDuration;
+        document.getElementById("feedFrequency").value = settings.feedFrequency;
+        
+        // Regenerate inputs base sa frequency
+        updateInputsUI(settings.feedFrequency);
+        
+        // I-apply ang mga saved na oras
+        const timeInputs = document.querySelectorAll(".time-input");
+        settings.feedTimes.forEach((time, index) => {
+            if (timeInputs[index]) timeInputs[index].value = time;
+        });
+    } else {
+        updateInputsUI(document.getElementById("feedFrequency").value);
+    }
+}
+
+function updateInputsUI(count) {
+    const container = document.getElementById("timeInputsContainer"); 
+    container.innerHTML = '';
+    const defaults = ["08:00", "12:00", "17:00"];
+    for(let i = 0; i < count; i++) {
+        const input = document.createElement("input"); 
+        input.type = "time"; 
+        input.className = "time-input";
+        input.value = defaults[i] || "00:00";
+        input.addEventListener("change", saveSettings); // Save kusa pag binago ang oras
+        container.appendChild(input);
+    }
+}
+
 /* ====== DASHBOARD MAIN ====== */
 function initDashboard() {
   let currentPH = 7;
   let currentTemp = 24;
+  let isWCActive = false; 
 
-  // --- NEW: LOAD SCHEDULES FROM FIREBASE ---
-  get(ref(database, "HitoFarm/Schedules")).then(snap => {
-    if (snap.exists()) {
-      const data = snap.val();
-      if (data.wcTime) document.getElementById("wcTime").value = data.wcTime;
-      if (data.wcDuration) document.getElementById("wcDuration").value = data.wcDuration;
-      if (data.feedFreq) {
-        document.getElementById("feedFrequency").value = data.feedFreq;
-        updateInputs(data.feedTimes); 
-      }
-    } else {
-      updateInputs(); 
-    }
-  });
+  // Load saved settings agad
+  loadSettings();
 
-  // --- NEW: SAVE SCHEDULES TO FIREBASE ---
-  const saveSchedules = () => {
-    const feedTimes = Array.from(document.querySelectorAll(".time-input")).map(i => i.value);
-    set(ref(database, "HitoFarm/Schedules"), {
-      wcTime: document.getElementById("wcTime").value,
-      wcDuration: document.getElementById("wcDuration").value,
-      feedFreq: document.getElementById("feedFrequency").value,
-      feedTimes: feedTimes
-    });
-  };
-
-  // Attach Save Events
-  document.getElementById("wcTime").addEventListener("change", saveSchedules);
-  document.getElementById("wcDuration").addEventListener("change", saveSchedules);
-
-  // Realtime Clock and Schedulers
+  // Realtime Clock
   setInterval(() => {
     const now = new Date();
     document.getElementById("rtClock").innerText = now.toLocaleTimeString();
@@ -169,52 +190,75 @@ function initDashboard() {
   }, 1000);
 
   /* --- Water Change Logic --- */
-  let isWCExecuting = false;
   function checkWaterChangeSchedule() {
     const now = new Date();
     const currentTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
     const scheduledTime = document.getElementById("wcTime").value;
     const durationMin = parseInt(document.getElementById("wcDuration").value);
-    if (currentTime === scheduledTime && !isWCExecuting) executeWaterChange(durationMin);
+    
+    if (currentTime === scheduledTime && !isWCActive) {
+      executeWaterChange(durationMin);
+    }
   }
 
   async function executeWaterChange(duration) {
-    isWCExecuting = true;
+    isWCActive = true;
     const wcStatus = document.getElementById("wcStatus");
     wcStatus.innerText = "Status: ONGOING";
     wcStatus.style.color = "#f59e0b";
+    
     addLog("WC_Start");
     set(ref(database, "HitoFarm/ControlMode"), "manual");
     set(ref(database, "HitoFarm/Manual/Relay1Toggle"), true);
+
     setTimeout(() => {
       set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
-      set(ref(database, "HitoFarm/ControlMode"), "automatic");
+      if (!isFeedingExecuting) {
+          set(ref(database, "HitoFarm/ControlMode"), "automatic");
+      }
       addLog("WC_End", `${duration} mins`);
       wcStatus.innerText = "Status: DONE";
       wcStatus.style.color = "#22c55e";
-      setTimeout(() => { isWCExecuting = false; wcStatus.innerText = "Status: IDLE"; wcStatus.style.color = "#6b7280"; }, 60000);
+      
+      setTimeout(() => { 
+        isWCActive = false; 
+        wcStatus.innerText = "Status: IDLE"; 
+        wcStatus.style.color = "#6b7280"; 
+      }, 60000);
     }, duration * 60000);
   }
 
-  /* --- Feeding Logic --- */
+  /* --- Priority Feeding Logic --- */
   let isFeedingExecuting = false;
   function checkFeedingSchedule() {
     const now = new Date();
     const currentTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
     const scheduleInputs = document.querySelectorAll(".time-input");
+    
     scheduleInputs.forEach(input => {
-      if (input.value === currentTime && !isFeedingExecuting) executeFeeding();
+      if (input.value === currentTime && !isFeedingExecuting) {
+        startAutomatedFeed();
+      }
     });
   }
 
-  function executeFeeding() {
+  function startAutomatedFeed() {
     isFeedingExecuting = true;
-    set(ref(database, "HitoFarm/Manual/Feed"), true);
-    addLog("Feed", "Auto");
+    set(ref(database, "HitoFarm/ControlMode"), "manual");
+
     setTimeout(() => {
-      set(ref(database, "HitoFarm/Manual/Feed"), false);
-      setTimeout(() => { isFeedingExecuting = false; }, 60000);
-    }, 5000); 
+      set(ref(database, "HitoFarm/Manual/Feed"), true);
+      
+      setTimeout(() => {
+        set(ref(database, "HitoFarm/Manual/Feed"), false);
+        if (!isWCActive) {
+            set(ref(database, "HitoFarm/ControlMode"), "automatic");
+        }
+        addLog("Feed", "Auto");
+        setTimeout(() => { isFeedingExecuting = false; }, 60000);
+      }, 20000); 
+
+    }, 1000); 
   }
 
   /* --- Firebase Realtime Listeners --- */
@@ -249,9 +293,10 @@ function initDashboard() {
         if(percent <= 2) nh3El.style.color = "#22c55e";
         else if(percent > 2 && percent < 5) nh3El.style.color = "#facc15";
         else nh3El.style.color = "#f87171";
+        
         if(mode === "automatic"){
             if(percent >= 5) set(ref(database, "HitoFarm/Manual/Relay1Toggle"), true);
-            else set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
+            else if(!isWCActive) set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
         }
     });
   }
@@ -278,7 +323,14 @@ function initDashboard() {
     }
   });
 
-  /* --- Controls & Inputs --- */
+  /* --- Listeners for Saving --- */
+  document.getElementById("wcTime").addEventListener("change", saveSettings);
+  document.getElementById("wcDuration").addEventListener("input", saveSettings);
+  document.getElementById("feedFrequency").addEventListener("change", (e) => {
+      updateInputsUI(e.target.value);
+      saveSettings();
+  });
+
   toggleMode.addEventListener("change", () => set(ref(database, "HitoFarm/ControlMode"), toggleMode.checked ? "manual" : "automatic"));
   onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { if(snap.exists()){ valveStatusEl.innerText = snap.val() ? "ON" : "OFF"; valveSwitch.checked = snap.val(); }});
   onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { if(snap.exists()) feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; });
@@ -288,19 +340,6 @@ function initDashboard() {
   feedButton.addEventListener("click", () => { set(ref(database, "HitoFarm/Manual/Feed"), true); addLog("Feed", "Manual"); });
   heaterSwitch.addEventListener("change", () => { set(ref(database, "HitoFarm/Manual/Relay3Toggle"), heaterSwitch.checked); addLog("Heater", heaterSwitch.checked ? "ON" : "OFF"); });
 
-  const feedFreqSelect = document.getElementById("feedFrequency");
-  function updateInputs(savedTimes = null) {
-    const container = document.getElementById("timeInputsContainer"); container.innerHTML = '';
-    const count = parseInt(feedFreqSelect.value); const defaults = ["08:00", "12:00", "17:00"];
-    for(let i = 0; i < count; i++) {
-      const input = document.createElement("input"); input.type = "time"; input.className = "time-input";
-      input.value = (savedTimes && savedTimes[i]) ? savedTimes[i] : (defaults[i] || "00:00");
-      input.addEventListener("change", saveSchedules); // Save when time changes
-      container.appendChild(input);
-    }
-  }
-  feedFreqSelect.addEventListener("change", () => { updateInputs(); saveSchedules(); });
-  
   logCalendar.addEventListener("change", async () => { const snap = await get(ref(database, "HitoFarm/Logs")); if(snap.exists()) displayLogs(snap.val()); });
   viewLogsBtn.addEventListener("click", async () => { showAllLogs = !showAllLogs; const snap = await get(ref(database, "HitoFarm/Logs")); displayLogs(snap.exists() ? snap.val() : []); viewLogsBtn.innerText = showAllLogs ? "View Recent Only" : "View All Logs"; });
 }
@@ -309,12 +348,7 @@ function initDashboard() {
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #f4f7f6; font-family: 'Segoe UI', system-ui, sans-serif; color: #1f2937; padding: 15px; }
-
-/* Header Layout */
-.header-clock { 
-  background: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px;
-  display: flex; justify-content: space-between; align-items: center;
-}
+.header-clock { background: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
 .header-left { text-align: left; min-width: 180px; }
 .header-center { text-align: center; flex-grow: 1; }
 .header-right { text-align: right; min-width: 180px; font-weight: bold; font-size: 14px; color: #059669; }
@@ -323,14 +357,11 @@ body { background: #f4f7f6; font-family: 'Segoe UI', system-ui, sans-serif; colo
 .header-center h1 { font-size: 1.6rem; letter-spacing: 1px; color: #111827; }
 .dot { height: 10px; width: 10px; background-color: #10b981; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1.5s infinite; }
 @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-
-/* Other UI Styles */
 #loginForm { display: flex; justify-content: center; align-items: center; min-height: 90vh; flex-direction: column; }
 .login-card { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
 .login-card input { width: 100%; margin-top: 10px; padding: 12px; border-radius: 8px; border: 1px solid #d1d5db; }
 .login-card button { width: 100%; margin-top: 20px; padding: 12px; border-radius: 8px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; }
 .program-description { margin-top: 20px; font-size: 13px; color: #4b5563; background: #f9fafb; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb; text-align: justify; }
-
 #dashboard { display: none; max-width: 1200px; margin: 0 auto; }
 .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
 .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
@@ -340,14 +371,14 @@ body { background: #f4f7f6; font-family: 'Segoe UI', system-ui, sans-serif; colo
 .legend div { margin-top: 3px; display: flex; align-items: center; }
 .legend span { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 50%; }
 .mode-card { grid-column: 1 / -1; text-align: center; padding: 20px; }
-.manual-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
 .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #d1d5db; transition: .4s; border-radius: 34px; }
 .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background: #3b82f6; }
 input:checked + .slider:before { transform: translateX(26px); }
-#logoutBtn { margin-top: 40px; padding: 15px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-weight: bold; width: 100%; max-width: 200px; display: block; margin-left: auto; margin-right: auto; }
+.manual-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
+#logoutBtn { margin-top: 40px; padding: 15px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-weight: bold; width: 100%; max-width: 200px; display: block; margin: 40px auto; }
 .wc-input, .time-input { width: 100%; padding: 8px; margin-top: 5px; border-radius: 6px; border: 1px solid #d1d5db; }
 </style>
 </head>
@@ -395,7 +426,7 @@ input:checked + .slider:before { transform: translateX(26px); }
       <div class="legend">
         <div><span style="background:#22c55e"></span>6.00 – 8.00 (Safe)</div>
         <div><span style="background:#facc15"></span>Warning (5.5 - 5.9 / 8.1 - 8.5)</div>
-        <div><span style="background:#f87171"></span>Danger (< 5.5 / > 8.5)</div>
+        <div><span style="background:#f87171"></span>Danger (&lt; 5.5 / &gt; 8.5)</div>
       </div>
     </div>
 
@@ -414,7 +445,7 @@ input:checked + .slider:before { transform: translateX(26px); }
       <div class="legend">
         <div><span style="background:#22c55e"></span>23 – 30 °C (Safe)</div>
         <div><span style="background:#facc15"></span>Warning (21-22 / 31-32)</div>
-        <div><span style="background:#f87171"></span>Critical (< 21 / > 32)</div>
+        <div><span style="background:#f87171"></span>Critical (&lt; 21 / &gt; 32)</div>
       </div>
     </div>
 
@@ -434,7 +465,7 @@ input:checked + .slider:before { transform: translateX(26px); }
       <div class="legend">
         <div><span style="background:#22c55e"></span>0 – 2.00% (Safe)</div>
         <div><span style="background:#facc15"></span>Warning (2.01 - 5.00%)</div>
-        <div><span style="background:#f87171"></span>Danger (> 5.00%)</div>
+        <div><span style="background:#f87171"></span>Danger (&gt; 5.00%)</div>
       </div>
     </div>
 
