@@ -6,7 +6,7 @@
     <title>HITO FARM REALTIME DASHBOARD</title>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-        import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+        import { getDatabase, ref, onValue, set, get, update } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
         import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -53,12 +53,12 @@
         const viewLogsBtn = document.getElementById("viewLogsBtn");
         const logCalendar = document.getElementById("logCalendar");
 
-        /* New Elements for Averages */
         const avgCalendar = document.getElementById("avgCalendar");
         const avgPhEl = document.getElementById("avgPh");
         const avgWaterTempEl = document.getElementById("avgWaterTemp");
         const avgAirTempEl = document.getElementById("avgAirTemp");
         const avgNh3El = document.getElementById("avgNh3");
+        const avgNtuEl = document.getElementById("avgNtu");
 
         let showAllLogs = false;
 
@@ -178,11 +178,14 @@
             let currentTemp = 24;
             let currentAirTemp = 0;
             let currentNH3 = 0;
+            let currentNTU = 0;
             let isWCActive = false;
+
+            // Averaging Variables
+            let samples = { ph: [], waterTemp: [], airTemp: [], nh3: [], ntu: [] };
 
             loadSettings();
 
-            // Set default date for Average Calendar to today
             const today = new Date().toISOString().split('T')[0];
             avgCalendar.value = today;
 
@@ -193,7 +196,42 @@
 
                 checkWaterChangeSchedule();
                 checkFeedingSchedule();
+
+                // Collect samples every 1 minute for the 5-minute average
+                if (now.getSeconds() === 0) {
+                    samples.ph.push(parseFloat(currentPH));
+                    samples.waterTemp.push(parseFloat(currentTemp));
+                    samples.airTemp.push(parseFloat(currentAirTemp));
+                    samples.nh3.push(parseFloat(currentNH3));
+                    samples.ntu.push(parseFloat(currentNTU));
+
+                    // Every 5 minutes, calculate average and upload
+                    if (now.getMinutes() % 5 === 0) {
+                        calculateAndSaveAverages();
+                    }
+                }
             }, 1000);
+
+            function calculateAndSaveAverages() {
+                const getAvg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2) : null;
+                
+                const avgData = {
+                    ph: getAvg(samples.ph),
+                    waterTemp: getAvg(samples.waterTemp),
+                    airTemp: getAvg(samples.airTemp),
+                    nh3: getAvg(samples.nh3),
+                    ntu: getAvg(samples.ntu)
+                };
+
+                const dateKey = new Date().toISOString().split('T')[0];
+                update(ref(database, `HitoFarm/DailyHistory/${dateKey}`), avgData);
+                
+                // Clear samples for next cycle
+                samples = { ph: [], waterTemp: [], airTemp: [], nh3: [], ntu: [] };
+                
+                // Update UI if viewing today
+                if(avgCalendar.value === dateKey) loadDailyAverages(dateKey);
+            }
 
             function checkWaterChangeSchedule() {
                 const now = new Date();
@@ -306,7 +344,7 @@
 
             onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
                 if (snap.exists()) {
-                    const val = snap.val(); ntuEl.innerText = val + " NTU";
+                    const val = snap.val(); currentNTU = val; ntuEl.innerText = val + " NTU";
                     if (val >= 0 && val <= 200) ntuEl.style.color = "#22c55e";
                     else ntuEl.style.color = "#f87171";
                     statusEl.innerText = (val <= 200) ? "Safe" : "Contaminated";
@@ -323,7 +361,6 @@
 
             /* --- Daily Average Retrieval Logic --- */
             async function loadDailyAverages(date) {
-                // Formatting date to match Firebase key (e.g., 2026-03-31)
                 const avgRef = ref(database, `HitoFarm/DailyHistory/${date}`);
                 const snap = await get(avgRef);
                 if(snap.exists()){
@@ -332,16 +369,18 @@
                     avgWaterTempEl.innerText = data.waterTemp ? data.waterTemp + " °C" : "--";
                     avgAirTempEl.innerText = data.airTemp ? data.airTemp + " °C" : "--";
                     avgNh3El.innerText = data.nh3 ? data.nh3 + " %" : "--";
+                    avgNtuEl.innerText = data.ntu ? data.ntu + " NTU" : "--";
                 } else {
                     avgPhEl.innerText = "--";
                     avgWaterTempEl.innerText = "--";
                     avgAirTempEl.innerText = "--";
                     avgNh3El.innerText = "--";
+                    avgNtuEl.innerText = "--";
                 }
             }
 
             avgCalendar.addEventListener("change", (e) => loadDailyAverages(e.target.value));
-            loadDailyAverages(today); // Load today's average on start
+            loadDailyAverages(today); 
 
             onValue(ref(database, "HitoFarm/ControlMode"), snap => {
                 if (snap.exists()) {
@@ -415,12 +454,11 @@
         #logoutBtn { margin-top: 40px; padding: 15px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-weight: bold; width: 100%; max-width: 200px; display: block; margin: 40px auto; }
         .wc-input, .time-input { width: 100%; padding: 8px; margin-top: 5px; border-radius: 6px; border: 1px solid #d1d5db; }
 
-        /* Averages Section Styling */
         .averages-section { margin-top: 20px; grid-column: 1 / -1; background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        .avg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 15px; }
+        .avg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 15px; }
         .avg-item { text-align: center; padding: 10px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
-        .avg-label { font-size: 12px; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; }
-        .avg-val { font-size: 1.4rem; font-weight: bold; color: #111827; }
+        .avg-label { font-size: 11px; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; }
+        .avg-val { font-size: 1.2rem; font-weight: bold; color: #111827; }
     </style>
 </head>
 <body>
@@ -552,8 +590,12 @@
                     <div class="avg-val" id="avgAirTemp">--</div>
                 </div>
                 <div class="avg-item">
-                    <div class="avg-label">Avg Ammonia (NH₃)</div>
+                    <div class="avg-label">Avg Ammonia</div>
                     <div class="avg-val" id="avgNh3">--</div>
+                </div>
+                <div class="avg-item">
+                    <div class="avg-label">Avg Turbidity</div>
+                    <div class="avg-val" id="avgNtu">--</div>
                 </div>
             </div>
         </div>
