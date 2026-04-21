@@ -37,12 +37,12 @@
         const waterTempEl = document.getElementById("waterTemp");
         const airTempEl = document.getElementById("airTemp");
         const statusEl = document.getElementById("status");
-        const nh3El = document.getElementById("nh3");
+        const ammoniaStatusEl = document.getElementById("ammoniaStatus");
 
         const valveStatusEl = document.getElementById("valveStatus");
         const valveSwitch = document.getElementById("valveSwitch");
         const feedStatusEl = document.getElementById("feedStatus");
-        const feedButton = document.getElementById("feedButton");
+        const feedSwitch = document.getElementById("feedSwitch");
         const heaterStatusEl = document.getElementById("heaterStatus");
         const heaterSwitch = document.getElementById("heaterSwitch");
 
@@ -57,7 +57,6 @@
         const avgPhEl = document.getElementById("avgPh");
         const avgWaterTempEl = document.getElementById("avgWaterTemp");
         const avgAirTempEl = document.getElementById("avgAirTemp");
-        const avgNh3El = document.getElementById("avgNh3");
         const avgNtuEl = document.getElementById("avgNtu");
 
         let showAllLogs = false;
@@ -86,11 +85,15 @@
             const now = new Date();
             const timestamp = now.toLocaleString();
             let message = "";
-            if (type === "Feed") message = (reason === "Auto") ? `Automated Feed done at ${timestamp}` : `Manual Feed done at ${timestamp}`;
+            
+            if (type === "Feed") {
+                message = reason.includes("Auto") ? `Automated Feed ${reason} at ${timestamp}` : `Manual Feed ${reason} at ${timestamp}`;
+            }
             else if (type === "Valve") message = `Manual Valve ${reason} at ${timestamp}`;
             else if (type === "Heater") message = `Manual Heater ${reason} at ${timestamp}`;
             else if (type === "WC_Start") message = `Automated Water Change Started at ${timestamp}`;
-            else if (type === "WC_End") message = `Automated Water Change Completed at ${timestamp} [Duration: ${reason}]`;
+            else if (type === "WC_End") message = `Automated Water Change ${reason} at ${timestamp}`;
+            else if (type === "Auto_Cancel") message = `SYSTEM ALERT: ${reason} at ${timestamp}`;
 
             const logRef = ref(database, "HitoFarm/Logs");
             get(logRef).then(snapshot => {
@@ -112,7 +115,7 @@
             }
             logsTitle.innerText = isManual ? "Manual Activity Logs" : "Automatic System Logs";
             let filteredLogs = logsArray.filter(log => {
-                const isAuto = log.includes("Automated") || log.includes("Auto");
+                const isAuto = log.includes("Automated") || log.includes("Auto") || log.includes("SYSTEM ALERT");
                 const isMan = log.includes("Manual");
                 const matchesMode = isManual ? isMan : isAuto;
                 const matchesDate = filterDateStr ? log.includes(filterDateStr) : true;
@@ -136,7 +139,8 @@
                 wcTime: document.getElementById("wcTime").value,
                 wcDuration: document.getElementById("wcDuration").value,
                 feedFrequency: document.getElementById("feedFrequency").value,
-                feedTimes: Array.from(document.querySelectorAll(".time-input")).map(input => input.value)
+                feedTimes: Array.from(document.querySelectorAll(".time-input")).map(input => input.value),
+                feedTriggers: Array.from(document.querySelectorAll(".trigger-input")).map(input => input.value)
             };
             localStorage.setItem("hitoFarmSchedule", JSON.stringify(settings));
         }
@@ -149,10 +153,18 @@
                 document.getElementById("wcDuration").value = settings.wcDuration;
                 document.getElementById("feedFrequency").value = settings.feedFrequency;
                 updateInputsUI(settings.feedFrequency);
+                
                 const timeInputs = document.querySelectorAll(".time-input");
+                const triggerInputs = document.querySelectorAll(".trigger-input");
+                
                 settings.feedTimes.forEach((time, index) => {
                     if (timeInputs[index]) timeInputs[index].value = time;
                 });
+                if (settings.feedTriggers) {
+                    settings.feedTriggers.forEach((count, index) => {
+                        if (triggerInputs[index]) triggerInputs[index].value = count;
+                    });
+                }
             } else {
                 updateInputsUI(document.getElementById("feedFrequency").value);
             }
@@ -163,12 +175,23 @@
             container.innerHTML = '';
             const defaults = ["08:00", "12:00", "17:00"];
             for (let i = 0; i < count; i++) {
+                const wrapper = document.createElement("div");
+                wrapper.style.display = "flex"; wrapper.style.gap = "5px"; wrapper.style.marginBottom = "5px";
                 const input = document.createElement("input");
-                input.type = "time";
-                input.className = "time-input";
+                input.type = "time"; input.className = "time-input"; input.style.flex = "2";
                 input.value = defaults[i] || "00:00";
                 input.addEventListener("change", saveSettings);
-                container.appendChild(input);
+                const triggerSelect = document.createElement("select");
+                triggerSelect.className = "trigger-input"; triggerSelect.style.flex = "1";
+                triggerSelect.style.padding = "4px"; triggerSelect.style.borderRadius = "6px";
+                triggerSelect.style.border = "1px solid #d1d5db";
+                for(let t=1; t<=3; t++) {
+                    let opt = document.createElement("option"); opt.value = t; opt.text = t + "x";
+                    triggerSelect.appendChild(opt);
+                }
+                triggerSelect.addEventListener("change", saveSettings);
+                wrapper.appendChild(input); wrapper.appendChild(triggerSelect);
+                container.appendChild(wrapper);
             }
         }
 
@@ -177,12 +200,11 @@
             let currentPH = 7;
             let currentTemp = 24;
             let currentAirTemp = 0;
-            let currentNH3 = 0;
             let currentNTU = 0;
             let isWCActive = false;
+            let isFeedingExecuting = false;
 
-            // Averaging Variables
-            let samples = { ph: [], waterTemp: [], airTemp: [], nh3: [], ntu: [] };
+            let samples = { ph: [], waterTemp: [], airTemp: [], ntu: [] };
 
             loadSettings();
 
@@ -194,18 +216,17 @@
                 document.getElementById("rtClock").innerText = now.toLocaleTimeString();
                 document.getElementById("rtDate").innerText = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 
-                checkWaterChangeSchedule();
-                checkFeedingSchedule();
+                if (!toggleMode.checked) {
+                    checkWaterChangeSchedule();
+                    checkFeedingSchedule();
+                }
 
-                // Collect samples every 1 minute for the 5-minute average
                 if (now.getSeconds() === 0) {
                     samples.ph.push(parseFloat(currentPH));
                     samples.waterTemp.push(parseFloat(currentTemp));
                     samples.airTemp.push(parseFloat(currentAirTemp));
-                    samples.nh3.push(parseFloat(currentNH3));
                     samples.ntu.push(parseFloat(currentNTU));
 
-                    // Every 5 minutes, calculate average and upload
                     if (now.getMinutes() % 5 === 0) {
                         calculateAndSaveAverages();
                     }
@@ -214,22 +235,15 @@
 
             function calculateAndSaveAverages() {
                 const getAvg = (arr) => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2) : null;
-                
                 const avgData = {
                     ph: getAvg(samples.ph),
                     waterTemp: getAvg(samples.waterTemp),
                     airTemp: getAvg(samples.airTemp),
-                    nh3: getAvg(samples.nh3),
                     ntu: getAvg(samples.ntu)
                 };
-
                 const dateKey = new Date().toISOString().split('T')[0];
                 update(ref(database, `HitoFarm/DailyHistory/${dateKey}`), avgData);
-                
-                // Clear samples for next cycle
-                samples = { ph: [], waterTemp: [], airTemp: [], nh3: [], ntu: [] };
-                
-                // Update UI if viewing today
+                samples = { ph: [], waterTemp: [], airTemp: [], ntu: [] };
                 if(avgCalendar.value === dateKey) loadDailyAverages(dateKey);
             }
 
@@ -251,64 +265,98 @@
                 wcStatus.style.color = "#f59e0b";
 
                 addLog("WC_Start");
-                set(ref(database, "HitoFarm/ControlMode"), "manual");
                 set(ref(database, "HitoFarm/Manual/Relay1Toggle"), true);
 
-                setTimeout(() => {
-                    set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
-                    if (!isFeedingExecuting) {
-                        set(ref(database, "HitoFarm/ControlMode"), "automatic");
+                let secondsPassed = 0;
+                let totalSeconds = duration * 60;
+                let cancelled = false;
+                
+                while (secondsPassed < totalSeconds) {
+                    if (toggleMode.checked) {
+                        cancelled = true;
+                        break;
                     }
-                    addLog("WC_End", `${duration} mins`);
+                    await new Promise(r => setTimeout(r, 1000));
+                    secondsPassed++;
+                }
+
+                set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
+                
+                if (cancelled) {
+                    addLog("Auto_Cancel", "Automated Water Change CANCELLED by manual override");
+                    wcStatus.innerText = "Status: CANCELLED";
+                    wcStatus.style.color = "#ef4444";
+                } else {
+                    addLog("WC_End", `Completed [${duration} mins]`);
                     wcStatus.innerText = "Status: DONE";
                     wcStatus.style.color = "#22c55e";
+                }
 
-                    setTimeout(() => {
-                        isWCActive = false;
-                        wcStatus.innerText = "Status: IDLE";
-                        wcStatus.style.color = "#6b7280";
-                    }, 60000);
-                }, duration * 60000);
+                setTimeout(() => {
+                    isWCActive = false;
+                    wcStatus.innerText = "Status: IDLE";
+                    wcStatus.style.color = "#6b7280";
+                }, 5000);
             }
 
-            let isFeedingExecuting = false;
             function checkFeedingSchedule() {
                 const now = new Date();
                 const currentTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
                 const scheduleInputs = document.querySelectorAll(".time-input");
+                const triggerInputs = document.querySelectorAll(".trigger-input");
 
-                scheduleInputs.forEach(input => {
+                scheduleInputs.forEach((input, index) => {
                     if (input.value === currentTime && !isFeedingExecuting) {
-                        startAutomatedFeed();
+                        const triggerCount = parseInt(triggerInputs[index].value) || 1;
+                        startAutomatedFeed(triggerCount);
                     }
                 });
             }
 
-            function startAutomatedFeed() {
+            async function startAutomatedFeed(count) {
                 isFeedingExecuting = true;
-                set(ref(database, "HitoFarm/ControlMode"), "manual");
-
-                setTimeout(() => {
+                let cancelled = false;
+                
+                for (let i = 0; i < count; i++) {
+                    if (toggleMode.checked) { cancelled = true; break; }
+                    
                     set(ref(database, "HitoFarm/Manual/Feed"), true);
-                    setTimeout(() => {
-                        set(ref(database, "HitoFarm/Manual/Feed"), false);
-                        if (!isWCActive) {
-                            set(ref(database, "HitoFarm/ControlMode"), "automatic");
-                        }
-                        addLog("Feed", "Auto");
-                        setTimeout(() => { isFeedingExecuting = false; }, 60000);
-                    }, 20000);
-                }, 1000);
+                    
+                    for(let s=0; s<20; s++) {
+                        if (toggleMode.checked) { cancelled = true; break; }
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    if (cancelled) break;
+                    
+                    set(ref(database, "HitoFarm/Manual/Feed"), false);
+                    
+                    if (i < count - 1) {
+                         for(let w=0; w<5; w++) {
+                            if (toggleMode.checked) { cancelled = true; break; }
+                            await new Promise(r => setTimeout(r, 1000));
+                         }
+                         if (cancelled) break;
+                    }
+                }
+
+                set(ref(database, "HitoFarm/Manual/Feed"), false);
+
+                if (cancelled) {
+                    addLog("Auto_Cancel", "Automated Feeding CANCELLED by manual override");
+                } else {
+                    addLog("Feed", `Auto (${count}x) done`);
+                }
+                
+                setTimeout(() => { isFeedingExecuting = false; }, 60000);
             }
 
-            /* --- Firebase Realtime Listeners --- */
+            /* --- Firebase Listeners --- */
             onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
                 if (snap.exists()) {
                     const val = snap.val().toFixed(2); currentPH = val; phEl.innerText = val;
                     if (val >= 6 && val <= 8) phEl.style.color = "#22c55e";
                     else if (val >= 5.5 && val < 6 || val > 8 && val <= 8.5) phEl.style.color = "#facc15";
                     else phEl.style.color = "#f87171";
-                    updateNH3(currentPH, currentTemp);
                 }
             });
 
@@ -318,29 +366,8 @@
                     if (val >= 23 && val <= 30) waterTempEl.style.color = "#22c55e";
                     else if (val >= 21 && val < 23 || val > 30 && val <= 32) waterTempEl.style.color = "#facc15";
                     else waterTempEl.style.color = "#f87171";
-                    updateNH3(currentPH, currentTemp);
                 }
             });
-
-            function updateNH3(ph, tempC) {
-                get(ref(database, "HitoFarm/ControlMode")).then(snap => {
-                    const mode = snap.exists() ? snap.val() : "automatic";
-                    const tempK = parseFloat(tempC) + 273.15;
-                    const pKa = 0.09018 + (2729.92 / tempK);
-                    const f = 1 / (Math.pow(10, (pKa - ph)) + 1);
-                    const percent = f * 100;
-                    currentNH3 = percent.toFixed(2);
-                    nh3El.innerText = currentNH3 + " %";
-                    if (percent <= 2) nh3El.style.color = "#22c55e";
-                    else if (percent > 2 && percent < 5) nh3El.style.color = "#facc15";
-                    else nh3El.style.color = "#f87171";
-
-                    if (mode === "automatic") {
-                        if (percent >= 5) set(ref(database, "HitoFarm/Manual/Relay1Toggle"), true);
-                        else if (!isWCActive) set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
-                    }
-                });
-            }
 
             onValue(ref(database, "HitoFarm/WaterQuality/TurbidityNTU"), snap => {
                 if (snap.exists()) {
@@ -359,7 +386,47 @@
                 }
             });
 
-            /* --- Daily Average Retrieval Logic --- */
+            onValue(ref(database, "HitoFarm/WaterQuality/AmmoniaStatus"), snap => {
+                if (snap.exists()) {
+                    const val = snap.val();
+                    ammoniaStatusEl.innerText = val;
+                    if (val === "NORMAL") ammoniaStatusEl.style.color = "#22c55e";
+                    else if (val === "WARNING") ammoniaStatusEl.style.color = "#facc15";
+                    else ammoniaStatusEl.style.color = "#f87171";
+                }
+            });
+
+            onValue(ref(database, "HitoFarm/ControlMode"), snap => {
+                if (snap.exists()) {
+                    const mode = snap.val(); 
+                    const isManualDb = (mode === "manual");
+                    toggleMode.checked = isManualDb;
+                    modeDisplay.innerText = isManualDb ? "MANUAL MODE" : "AUTOMATIC MODE";
+                    modeDisplay.style.color = isManualDb ? "#3b82f6" : "#22c55e";
+                    document.querySelectorAll('.manual-control-card').forEach(el => el.style.display = isManualDb ? "block" : "none");
+                    get(ref(database, "HitoFarm/Logs")).then(logSnap => { if (logSnap.exists()) displayLogs(logSnap.val()); });
+                }
+            });
+
+            onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { 
+                if (snap.exists()) { 
+                    valveStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
+                    valveSwitch.checked = snap.val(); 
+                } 
+            });
+            onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { 
+                if (snap.exists()) { 
+                    feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
+                    feedSwitch.checked = snap.val(); 
+                } 
+            });
+            onValue(ref(database, "HitoFarm/Manual/Relay3Toggle"), snap => { 
+                if (snap.exists()) { 
+                    heaterStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
+                    heaterSwitch.checked = snap.val(); 
+                } 
+            });
+
             async function loadDailyAverages(date) {
                 const avgRef = ref(database, `HitoFarm/DailyHistory/${date}`);
                 const snap = await get(avgRef);
@@ -368,47 +435,31 @@
                     avgPhEl.innerText = data.ph || "--";
                     avgWaterTempEl.innerText = data.waterTemp ? data.waterTemp + " °C" : "--";
                     avgAirTempEl.innerText = data.airTemp ? data.airTemp + " °C" : "--";
-                    avgNh3El.innerText = data.nh3 ? data.nh3 + " %" : "--";
                     avgNtuEl.innerText = data.ntu ? data.ntu + " NTU" : "--";
                 } else {
-                    avgPhEl.innerText = "--";
-                    avgWaterTempEl.innerText = "--";
-                    avgAirTempEl.innerText = "--";
-                    avgNh3El.innerText = "--";
-                    avgNtuEl.innerText = "--";
+                    avgPhEl.innerText = "--"; avgWaterTempEl.innerText = "--"; avgAirTempEl.innerText = "--"; avgNtuEl.innerText = "--";
                 }
             }
 
             avgCalendar.addEventListener("change", (e) => loadDailyAverages(e.target.value));
             loadDailyAverages(today); 
 
-            onValue(ref(database, "HitoFarm/ControlMode"), snap => {
-                if (snap.exists()) {
-                    const mode = snap.val(); const isManual = (mode === "manual");
-                    toggleMode.checked = isManual; modeDisplay.innerText = isManual ? "MANUAL MODE" : "AUTOMATIC MODE";
-                    modeDisplay.style.color = isManual ? "#3b82f6" : "#22c55e";
-                    document.querySelectorAll('.valve-card').forEach(el => el.style.display = isManual ? "block" : "none");
-                    get(ref(database, "HitoFarm/Logs")).then(logSnap => { if (logSnap.exists()) displayLogs(logSnap.val()); });
-                }
+            toggleMode.addEventListener("change", () => {
+                const isChecked = toggleMode.checked;
+                const newMode = isChecked ? "manual" : "automatic";
+                set(ref(database, "HitoFarm/ControlMode"), newMode);
+                set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
+                set(ref(database, "HitoFarm/Manual/Feed"), false);
+                set(ref(database, "HitoFarm/Manual/Relay3Toggle"), false);
             });
-
-            /* --- Listeners for Saving --- */
-            document.getElementById("wcTime").addEventListener("change", saveSettings);
-            document.getElementById("wcDuration").addEventListener("input", saveSettings);
-            document.getElementById("feedFrequency").addEventListener("change", (e) => {
-                updateInputsUI(e.target.value);
-                saveSettings();
-            });
-
-            toggleMode.addEventListener("change", () => set(ref(database, "HitoFarm/ControlMode"), toggleMode.checked ? "manual" : "automatic"));
-            onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { if (snap.exists()) { valveStatusEl.innerText = snap.val() ? "ON" : "OFF"; valveSwitch.checked = snap.val(); } });
-            onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { if (snap.exists()) feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; });
-            onValue(ref(database, "HitoFarm/Manual/Relay3Toggle"), snap => { if (snap.exists()) { heaterStatusEl.innerText = snap.val() ? "ON" : "OFF"; heaterSwitch.checked = snap.val(); } });
 
             valveSwitch.addEventListener("change", () => { set(ref(database, "HitoFarm/Manual/Relay1Toggle"), valveSwitch.checked); addLog("Valve", valveSwitch.checked ? "ON" : "OFF"); });
-            feedButton.addEventListener("click", () => { set(ref(database, "HitoFarm/Manual/Feed"), true); addLog("Feed", "Manual"); });
+            feedSwitch.addEventListener("change", () => { set(ref(database, "HitoFarm/Manual/Feed"), feedSwitch.checked); addLog("Feed", feedSwitch.checked ? "ON" : "OFF"); });
             heaterSwitch.addEventListener("change", () => { set(ref(database, "HitoFarm/Manual/Relay3Toggle"), heaterSwitch.checked); addLog("Heater", heaterSwitch.checked ? "ON" : "OFF"); });
-
+            
+            document.getElementById("wcTime").addEventListener("change", saveSettings);
+            document.getElementById("wcDuration").addEventListener("input", saveSettings);
+            document.getElementById("feedFrequency").addEventListener("change", (e) => { updateInputsUI(e.target.value); saveSettings(); });
             logCalendar.addEventListener("change", async () => { const snap = await get(ref(database, "HitoFarm/Logs")); if (snap.exists()) displayLogs(snap.val()); });
             viewLogsBtn.addEventListener("click", async () => { showAllLogs = !showAllLogs; const snap = await get(ref(database, "HitoFarm/Logs")); displayLogs(snap.exists() ? snap.val() : []); viewLogsBtn.innerText = showAllLogs ? "View Recent Only" : "View All Logs"; });
         }
@@ -416,32 +467,26 @@
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #f4f7f6; font-family: 'Segoe UI', system-ui, sans-serif; color: #1f2937; padding: 15px; }
+        body { background: #f4f7f6; font-family: 'Segoe UI', sans-serif; color: #1f2937; padding: 15px; }
         .header-clock { background: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .header-left { text-align: left; min-width: 180px; }
-        .header-center { text-align: center; flex-grow: 1; }
-        .header-right { text-align: right; min-width: 180px; font-weight: bold; font-size: 14px; color: #059669; }
         #rtClock { font-size: 1.8rem; font-weight: bold; color: #3b82f6; display: block; line-height: 1; }
         #rtDate { font-size: 0.9rem; color: #6b7280; }
         .header-center h1 { font-size: 1.6rem; letter-spacing: 1px; color: #111827; }
         .dot { height: 10px; width: 10px; background-color: #10b981; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1.5s infinite; }
         @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        
         #loginForm { display: flex; justify-content: center; align-items: center; min-height: 90vh; flex-direction: column; }
         .login-card { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         .login-card input { width: 100%; margin-top: 10px; padding: 12px; border-radius: 8px; border: 1px solid #d1d5db; }
         .login-card button { width: 100%; margin-top: 20px; padding: 12px; border-radius: 8px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; }
-        
-        .program-description { margin-top: 20px; font-size: 13px; color: #4b5563; background: #f9fafb; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb; text-align: justify; }
+        .program-description { margin-top: 20px; font-size: 13px; color: #4b5563; background: #f9fafb; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb; }
         #dashboard { display: none; max-width: 1200px; margin: 0 auto; }
         .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px; }
         .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
         .card h2 { font-size: 1rem; color: #6b7280; margin-bottom: 10px; text-transform: uppercase; }
         .value { font-size: 2.2rem; font-weight: bold; color: #111827; }
         .legend { font-size: 13px; color: #6b7280; margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px; }
-        .legend div { margin-top: 3px; display: flex; align-items: center; }
+        .legend div { display: flex; align-items: center; margin-top: 3px; }
         .legend span { width: 12px; height: 12px; display: inline-block; margin-right: 5px; border-radius: 50%; }
-        
         .mode-card { grid-column: 1 / -1; text-align: center; padding: 20px; }
         .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
         .switch input { opacity: 0; width: 0; height: 0; }
@@ -449,16 +494,16 @@
         .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background: white; transition: .4s; border-radius: 50%; }
         input:checked + .slider { background: #3b82f6; }
         input:checked + .slider:before { transform: translateX(26px); }
-        
-        .manual-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
+        .manual-controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
+        .manual-control-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 15px; text-align: center; display: none; }
         #logoutBtn { margin-top: 40px; padding: 15px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-weight: bold; width: 100%; max-width: 200px; display: block; margin: 40px auto; }
-        .wc-input, .time-input { width: 100%; padding: 8px; margin-top: 5px; border-radius: 6px; border: 1px solid #d1d5db; }
-
-        .averages-section { margin-top: 20px; grid-column: 1 / -1; background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .wc-input, .time-input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+        .averages-section { margin-top: 20px; grid-column: 1 / -1; background: #fff; padding: 20px; border-radius: 12px; }
         .avg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 15px; }
-        .avg-item { text-align: center; padding: 10px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
-        .avg-label { font-size: 11px; color: #6b7280; text-transform: uppercase; margin-bottom: 5px; }
+        .avg-item { text-align: center; padding: 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .avg-label { font-size: 11px; color: #6b7280; text-transform: uppercase; }
         .avg-val { font-size: 1.2rem; font-weight: bold; color: #111827; }
+        .logs-section { grid-column: 1 / -1; margin-top: 20px; background: white; padding: 20px; border-radius: 12px; }
     </style>
 </head>
 <body>
@@ -474,7 +519,7 @@
         <div id="loginStatus" style="color:red; margin-top:10px; font-size:13px; text-align: center;"></div>
         <div class="program-description">
             <strong>Program Description:</strong><br>
-            This system is designed for the real-time monitoring and management of a Catfish (Hito) Farm. It tracks critical water parameters with automated feeding and water change capabilities.
+            Real-time monitoring and management for Catfish (Hito) Farm. Tracks water parameters with automated feeding and water change capabilities.
         </div>
     </div>
 </div>
@@ -498,17 +543,34 @@
         <label class="switch"><input type="checkbox" id="toggleMode"><span class="slider"></span></label>
     </div>
 
-    <div class="container">
+    <div class="manual-controls">
+        <div class="manual-control-card">
+            <h3>WATER VALVE</h3>
+            <div style="font-weight: bold; margin-bottom: 5px;" id="valveStatus">OFF</div>
+            <label class="switch"><input type="checkbox" id="valveSwitch"><span class="slider"></span></label>
+        </div>
+        <div class="manual-control-card">
+            <h3>FISH FEEDER</h3>
+            <div style="font-weight: bold; margin-bottom: 5px;" id="feedStatus">OFF</div>
+            <label class="switch"><input type="checkbox" id="feedSwitch"><span class="slider"></span></label>
+        </div>
+        <div class="manual-control-card">
+            <h3>WATER HEATER</h3>
+            <div style="font-weight: bold; margin-bottom: 5px;" id="heaterStatus">OFF</div>
+            <label class="switch"><input type="checkbox" id="heaterSwitch"><span class="slider"></span></label>
+        </div>
+    </div>
+
+    <div class="container" style="margin-top: 20px;">
         <div class="card">
             <h2>pH Level</h2>
             <div class="value" id="ph">--</div>
             <div class="legend">
                 <div><span style="background:#22c55e"></span>6.00 – 8.00 (Safe)</div>
-                <div><span style="background:#facc15"></span>Warning (5.5 - 5.9 / 8.1 - 8.5)</div>
-                <div><span style="background:#f87171"></span>Danger (&lt; 5.5 / &gt; 8.5)</div>
+                <div><span style="background:#facc15"></span>Warning (5.5-5.9 / 8.1-8.5)</div>
+                <div><span style="background:#f87171"></span>Danger (&lt;5.5 / &gt;8.5)</div>
             </div>
         </div>
-
         <div class="card">
             <h2>Turbidity (NTU)</h2>
             <div class="value" id="ntu">--</div>
@@ -517,108 +579,67 @@
                 <div><span style="background:#f87171"></span>201+ (Dirty)</div>
             </div>
         </div>
-
         <div class="card">
             <h2>Water Temp</h2>
             <div class="value" id="waterTemp">--</div>
             <div class="legend">
                 <div><span style="background:#22c55e"></span>23 – 30 °C (Safe)</div>
                 <div><span style="background:#facc15"></span>Warning (21-22 / 31-32)</div>
-                <div><span style="background:#f87171"></span>Critical (&lt; 21 / &gt; 32)</div>
+                <div><span style="background:#f87171"></span>Critical (&lt;21 / &gt;32)</div>
             </div>
         </div>
-
+        <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
+        <div class="card"><h2>Water Quality</h2><div class="value" id="status">--</div></div>
         <div class="card">
-            <h2>Air Temp</h2>
-            <div class="value" id="airTemp">--</div>
-        </div>
-
-        <div class="card">
-            <h2>Water Quality</h2>
-            <div class="value" id="status">--</div>
-        </div>
-
-        <div class="card">
-            <h2>Ammonia (NH₃)</h2>
-            <div class="value" id="nh3">--</div>
+            <h2>Ammonia Status</h2>
+            <div class="value" id="ammoniaStatus">--</div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>0 – 2.00% (Safe)</div>
-                <div><span style="background:#facc15"></span>Warning (2.01 - 5.00%)</div>
-                <div><span style="background:#f87171"></span>Danger (&gt; 5.00%)</div>
+                <div><span style="background:#22c55e"></span>NORMAL (Safe)</div>
+                <div><span style="background:#facc15"></span>WARNING</div>
+                <div><span style="background:#f87171"></span>DANGER (Toxic)</div>
             </div>
         </div>
-
         <div class="card">
             <h2>Water Change Schedule</h2>
-            <label style="font-size: 12px;">Time:</label><input type="time" id="wcTime" class="wc-input" value="07:00">
-            <label style="font-size: 12px; margin-top:5px; display:block;">Duration (Min):</label><input type="number" id="wcDuration" class="wc-input" value="10" min="1">
+            <label style="font-size: 12px;">Time:</label><input type="time" id="wcTime" class="wc-input">
+            <label style="font-size: 12px; margin-top:5px; display:block;">Duration (Min):</label><input type="number" id="wcDuration" class="wc-input" min="1">
             <div id="wcStatus" style="font-size: 12px; margin-top: 10px; font-weight: bold;">Status: IDLE</div>
         </div>
-
         <div class="card">
             <h2>Feed Schedule</h2>
             <select id="feedFrequency" style="width:100%; padding:8px; margin-bottom:10px;">
+                <option value="1">1x a Day</option>
                 <option value="2">2x a Day</option>
                 <option value="3" selected>3x a Day</option>
             </select>
             <div id="timeInputsContainer"></div>
         </div>
+    </div>
 
-        <div class="card">
-            <h2 id="logsTitle">Activity Logs</h2>
-            <input type="date" id="logCalendar" style="width:100%; margin-bottom:10px; padding:5px;">
-            <div id="logs" style="max-height:120px; overflow-y:auto; font-size:13px;"></div>
-            <button id="viewLogsBtn" style="background:#f59e0b; color:white; border:none; padding:8px; margin-top:10px; border-radius:8px; width:100%;">View All Logs</button>
-        </div>
-
-        <div class="averages-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f3f4f6; padding-bottom: 10px;">
-                <h2 style="font-size: 1rem; color: #111827;">Daily Historical Averages</h2>
-                <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
-            </div>
-            <div class="avg-grid">
-                <div class="avg-item">
-                    <div class="avg-label">Avg pH</div>
-                    <div class="avg-val" id="avgPh">--</div>
-                </div>
-                <div class="avg-item">
-                    <div class="avg-label">Avg Water Temp</div>
-                    <div class="avg-val" id="avgWaterTemp">--</div>
-                </div>
-                <div class="avg-item">
-                    <div class="avg-label">Avg Air Temp</div>
-                    <div class="avg-val" id="avgAirTemp">--</div>
-                </div>
-                <div class="avg-item">
-                    <div class="avg-label">Avg Ammonia</div>
-                    <div class="avg-val" id="avgNh3">--</div>
-                </div>
-                <div class="avg-item">
-                    <div class="avg-label">Avg Turbidity</div>
-                    <div class="avg-val" id="avgNtu">--</div>
-                </div>
-            </div>
+    <div class="averages-section">
+        <h3>DAILY AVERAGES LOG</h3>
+        <input type="date" id="avgCalendar" style="margin-top:10px; padding:5px; border-radius:5px; border:1px solid #ddd;">
+        <div class="avg-grid">
+            <div class="avg-item"><div class="avg-label">Avg pH</div><div class="avg-val" id="avgPh">--</div></div>
+            <div class="avg-item"><div class="avg-label">Avg Water Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">Avg Air Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">Avg Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
         </div>
     </div>
 
-    <div class="manual-controls">
-        <div class="card valve-card">
-            <h2>Water Valve</h2>
-            <div class="value" id="valveStatus" style="font-size:1.5rem">--</div>
-            <label class="switch"><input type="checkbox" id="valveSwitch"><span class="slider"></span></label>
+    <div class="logs-section">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h3 id="logsTitle">Activity Logs</h3>
+            <div style="display:flex; gap:10px;">
+                <input type="date" id="logCalendar" style="padding:5px; border-radius:5px; border:1px solid #ddd;">
+                <button id="viewLogsBtn" style="padding:5px 10px; cursor:pointer; background:#3b82f6; color:white; border:none; border-radius:5px;">View All Logs</button>
+            </div>
         </div>
-        <div class="card valve-card">
-            <h2>Feeder</h2>
-            <div class="value" id="feedStatus" style="font-size:1.5rem">--</div>
-            <button id="feedButton" style="background: #3b82f6; color:white; border:none; padding:10px; border-radius:8px; width:100%;">Feed Now</button>
-        </div>
-        <div class="card valve-card">
-            <h2>Heater</h2>
-            <div class="value" id="heaterStatus" style="font-size:1.5rem">--</div>
-            <label class="switch"><input type="checkbox" id="heaterSwitch"><span class="slider"></span></label>
-        </div>
+        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 14px;"></div>
     </div>
-    <button id="logoutBtn">Logout System</button>
+
+    <button id="logoutBtn">Logout</button>
 </div>
+
 </body>
 </html>
