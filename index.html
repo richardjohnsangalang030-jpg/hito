@@ -38,6 +38,7 @@
         const airTempEl = document.getElementById("airTemp");
         const statusEl = document.getElementById("status");
         const ammoniaStatusEl = document.getElementById("ammoniaStatus");
+        const ammoniaRawEl = document.getElementById("ammoniaRaw");
 
         const valveStatusEl = document.getElementById("valveStatus");
         const valveSwitch = document.getElementById("valveSwitch");
@@ -58,6 +59,7 @@
         const avgWaterTempEl = document.getElementById("avgWaterTemp");
         const avgAirTempEl = document.getElementById("avgAirTemp");
         const avgNtuEl = document.getElementById("avgNtu");
+        const avgAmmoniaEl = document.getElementById("avgAmmonia");
 
         let showAllLogs = false;
 
@@ -201,10 +203,11 @@
             let currentTemp = 24;
             let currentAirTemp = 0;
             let currentNTU = 0;
+            let currentAmmonia = 0;
             let isWCActive = false;
             let isFeedingExecuting = false;
 
-            let samples = { ph: [], waterTemp: [], airTemp: [], ntu: [] };
+            let samples = { ph: [], waterTemp: [], airTemp: [], ntu: [], ammonia: [] };
 
             loadSettings();
 
@@ -226,6 +229,7 @@
                     samples.waterTemp.push(parseFloat(currentTemp));
                     samples.airTemp.push(parseFloat(currentAirTemp));
                     samples.ntu.push(parseFloat(currentNTU));
+                    samples.ammonia.push(parseFloat(currentAmmonia));
 
                     if (now.getMinutes() % 5 === 0) {
                         calculateAndSaveAverages();
@@ -239,11 +243,12 @@
                     ph: getAvg(samples.ph),
                     waterTemp: getAvg(samples.waterTemp),
                     airTemp: getAvg(samples.airTemp),
-                    ntu: getAvg(samples.ntu)
+                    ntu: getAvg(samples.ntu),
+                    ammonia: getAvg(samples.ammonia)
                 };
                 const dateKey = new Date().toISOString().split('T')[0];
                 update(ref(database, `HitoFarm/DailyHistory/${dateKey}`), avgData);
-                samples = { ph: [], waterTemp: [], airTemp: [], ntu: [] };
+                samples = { ph: [], waterTemp: [], airTemp: [], ntu: [], ammonia: [] };
                 if(avgCalendar.value === dateKey) loadDailyAverages(dateKey);
             }
 
@@ -386,13 +391,23 @@
                 }
             });
 
-            onValue(ref(database, "HitoFarm/WaterQuality/AmmoniaStatus"), snap => {
+            // AMMONIA LISTENER (CONNECTED TO FIREBASE)
+            onValue(ref(database, "HitoFarm/WaterQuality/AmmoniaRaw"), snap => {
                 if (snap.exists()) {
                     const val = snap.val();
-                    ammoniaStatusEl.innerText = val;
-                    if (val === "NORMAL") ammoniaStatusEl.style.color = "#22c55e";
-                    else if (val === "WARNING") ammoniaStatusEl.style.color = "#facc15";
-                    else ammoniaStatusEl.style.color = "#f87171";
+                    currentAmmonia = val;
+                    ammoniaRawEl.innerText = val;
+                    
+                    if (val <= 900) {
+                        ammoniaStatusEl.innerText = "NORMAL";
+                        ammoniaStatusEl.style.color = "#22c55e";
+                    } else if (val >= 901 && val <= 920) {
+                        ammoniaStatusEl.innerText = "WARNING";
+                        ammoniaStatusEl.style.color = "#facc15";
+                    } else {
+                        ammoniaStatusEl.innerText = "HIGH";
+                        ammoniaStatusEl.style.color = "#f87171";
+                    }
                 }
             });
 
@@ -436,8 +451,9 @@
                     avgWaterTempEl.innerText = data.waterTemp ? data.waterTemp + " °C" : "--";
                     avgAirTempEl.innerText = data.airTemp ? data.airTemp + " °C" : "--";
                     avgNtuEl.innerText = data.ntu ? data.ntu + " NTU" : "--";
+                    avgAmmoniaEl.innerText = data.ammonia || "--";
                 } else {
-                    avgPhEl.innerText = "--"; avgWaterTempEl.innerText = "--"; avgAirTempEl.innerText = "--"; avgNtuEl.innerText = "--";
+                    avgPhEl.innerText = "--"; avgWaterTempEl.innerText = "--"; avgAirTempEl.innerText = "--"; avgNtuEl.innerText = "--"; avgAmmoniaEl.innerText = "--";
                 }
             }
 
@@ -590,55 +606,65 @@
         </div>
         <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
         <div class="card"><h2>Water Quality</h2><div class="value" id="status">--</div></div>
+        
         <div class="card">
             <h2>Ammonia Status</h2>
             <div class="value" id="ammoniaStatus">--</div>
+            <div style="font-size: 0.9rem; color: #6b7280; margin-top: -5px;">Raw Value: <span id="ammoniaRaw" style="font-weight: bold;">--</span></div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>NORMAL (Safe)</div>
-                <div><span style="background:#facc15"></span>WARNING</div>
-                <div><span style="background:#f87171"></span>DANGER (Toxic)</div>
+                <div><span style="background:#22c55e"></span>900 below (Good)</div>
+                <div><span style="background:#facc15"></span>901 – 920 (Warning)</div>
+                <div><span style="background:#f87171"></span>921 above (High)</div>
             </div>
         </div>
+    </div>
+
+    <div class="averages-section">
+        <h3>Daily Sensor Averages</h3>
+        <input type="date" id="avgCalendar" style="margin-top:10px; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
+        <div class="avg-grid">
+            <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
+            <div class="avg-item"><div class="avg-label">W-Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">A-Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
+            <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
+        </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-top: 20px;">
         <div class="card">
             <h2>Water Change Schedule</h2>
-            <label style="font-size: 12px;">Time:</label><input type="time" id="wcTime" class="wc-input">
-            <label style="font-size: 12px; margin-top:5px; display:block;">Duration (Min):</label><input type="number" id="wcDuration" class="wc-input" min="1">
-            <div id="wcStatus" style="font-size: 12px; margin-top: 10px; font-weight: bold;">Status: IDLE</div>
+            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">TIME:</label>
+            <input type="time" id="wcTime" class="wc-input" value="00:00">
+            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">DURATION (MINUTES):</label>
+            <input type="number" id="wcDuration" class="wc-input" value="5">
+            <div id="wcStatus" style="margin-top: 15px; font-weight: bold; color: #6b7280; font-size: 14px;">Status: IDLE</div>
         </div>
+
         <div class="card">
-            <h2>Feed Schedule</h2>
-            <select id="feedFrequency" style="width:100%; padding:8px; margin-bottom:10px;">
-                <option value="1">1x a Day</option>
-                <option value="2">2x a Day</option>
-                <option value="3" selected>3x a Day</option>
+            <h2>Feeding Schedule</h2>
+            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">TIMES PER DAY:</label>
+            <select id="feedFrequency" class="wc-input" style="margin-bottom: 15px;">
+                <option value="1">1x a day</option>
+                <option value="2">2x a day</option>
+                <option value="3" selected>3x a day</option>
             </select>
             <div id="timeInputsContainer"></div>
         </div>
     </div>
 
-    <div class="averages-section">
-        <h3>DAILY AVERAGES LOG</h3>
-        <input type="date" id="avgCalendar" style="margin-top:10px; padding:5px; border-radius:5px; border:1px solid #ddd;">
-        <div class="avg-grid">
-            <div class="avg-item"><div class="avg-label">Avg pH</div><div class="avg-val" id="avgPh">--</div></div>
-            <div class="avg-item"><div class="avg-label">Avg Water Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">Avg Air Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">Avg Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
-        </div>
-    </div>
-
     <div class="logs-section">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
             <h3 id="logsTitle">Activity Logs</h3>
-            <div style="display:flex; gap:10px;">
-                <input type="date" id="logCalendar" style="padding:5px; border-radius:5px; border:1px solid #ddd;">
-                <button id="viewLogsBtn" style="padding:5px 10px; cursor:pointer; background:#3b82f6; color:white; border:none; border-radius:5px;">View All Logs</button>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="date" id="logCalendar" style="padding: 6px; border-radius: 6px; border: 1px solid #d1d5db;">
+                <button id="viewLogsBtn" style="padding: 8px 15px; border-radius: 8px; border: none; background: #3b82f6; color: white; cursor: pointer; font-weight: 500;">View All Logs</button>
             </div>
         </div>
-        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 14px;"></div>
+        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; color: #374151;"></div>
     </div>
 
-    <button id="logoutBtn">Logout</button>
+    <button id="logoutBtn">Logout System</button>
 </div>
 
 </body>
