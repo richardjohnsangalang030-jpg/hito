@@ -140,6 +140,7 @@
             const settings = {
                 wcTime: document.getElementById("wcTime").value,
                 wcDuration: document.getElementById("wcDuration").value,
+                wcFrequency: document.getElementById("wcFrequency").value, // NEW
                 feedFrequency: document.getElementById("feedFrequency").value,
                 feedTimes: Array.from(document.querySelectorAll(".time-input")).map(input => input.value),
                 feedTriggers: Array.from(document.querySelectorAll(".trigger-input")).map(input => input.value)
@@ -153,6 +154,7 @@
                 const settings = JSON.parse(saved);
                 document.getElementById("wcTime").value = settings.wcTime;
                 document.getElementById("wcDuration").value = settings.wcDuration;
+                if(settings.wcFrequency) document.getElementById("wcFrequency").value = settings.wcFrequency; // NEW
                 document.getElementById("feedFrequency").value = settings.feedFrequency;
                 updateInputsUI(settings.feedFrequency);
                 
@@ -211,8 +213,8 @@
 
             loadSettings();
 
-            const today = new Date().toISOString().split('T')[0];
-            avgCalendar.value = today;
+            const todayStr = new Date().toISOString().split('T')[0];
+            avgCalendar.value = todayStr;
 
             setInterval(() => {
                 const now = new Date();
@@ -257,9 +259,16 @@
                 const currentTime = now.getHours().toString().padStart(2, '0') + ":" + now.getMinutes().toString().padStart(2, '0');
                 const scheduledTime = document.getElementById("wcTime").value;
                 const durationMin = parseInt(document.getElementById("wcDuration").value);
+                const frequency = parseInt(document.getElementById("wcFrequency").value);
 
+                // Logic for Frequency: Days since epoch
+                const dayCount = Math.floor(now.getTime() / (1000 * 60 * 60 * 24));
+                
                 if (currentTime === scheduledTime && !isWCActive) {
-                    executeWaterChange(durationMin);
+                    // If dayCount is divisible by frequency, it's a scheduled day
+                    if (dayCount % frequency === 0) {
+                        executeWaterChange(durationMin);
+                    }
                 }
             }
 
@@ -391,7 +400,6 @@
                 }
             });
 
-            // AMMONIA LISTENER (CONNECTED TO FIREBASE)
             onValue(ref(database, "HitoFarm/WaterQuality/AmmoniaRaw"), snap => {
                 if (snap.exists()) {
                     const val = snap.val();
@@ -458,7 +466,7 @@
             }
 
             avgCalendar.addEventListener("change", (e) => loadDailyAverages(e.target.value));
-            loadDailyAverages(today); 
+            loadDailyAverages(todayStr); 
 
             toggleMode.addEventListener("change", () => {
                 const isChecked = toggleMode.checked;
@@ -475,6 +483,7 @@
             
             document.getElementById("wcTime").addEventListener("change", saveSettings);
             document.getElementById("wcDuration").addEventListener("input", saveSettings);
+            document.getElementById("wcFrequency").addEventListener("change", saveSettings); // NEW
             document.getElementById("feedFrequency").addEventListener("change", (e) => { updateInputsUI(e.target.value); saveSettings(); });
             logCalendar.addEventListener("change", async () => { const snap = await get(ref(database, "HitoFarm/Logs")); if (snap.exists()) displayLogs(snap.val()); });
             viewLogsBtn.addEventListener("click", async () => { showAllLogs = !showAllLogs; const snap = await get(ref(database, "HitoFarm/Logs")); displayLogs(snap.exists() ? snap.val() : []); viewLogsBtn.innerText = showAllLogs ? "View Recent Only" : "View All Logs"; });
@@ -513,7 +522,7 @@
         .manual-controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
         .manual-control-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 15px; text-align: center; display: none; }
         #logoutBtn { margin-top: 40px; padding: 15px; border-radius: 12px; background: #ef4444; color: white; border: none; cursor: pointer; font-weight: bold; width: 100%; max-width: 200px; display: block; margin: 40px auto; }
-        .wc-input, .time-input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+        .wc-input, .time-input, .wc-select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
         .averages-section { margin-top: 20px; grid-column: 1 / -1; background: #fff; padding: 20px; border-radius: 12px; }
         .avg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 15px; }
         .avg-item { text-align: center; padding: 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; }
@@ -587,6 +596,7 @@
                 <div><span style="background:#f87171"></span>Danger (&lt;5.5 / &gt;8.5)</div>
             </div>
         </div>
+
         <div class="card">
             <h2>Turbidity (NTU)</h2>
             <div class="value" id="ntu">--</div>
@@ -594,74 +604,92 @@
                 <div><span style="background:#22c55e"></span>0 – 200 (Safe)</div>
                 <div><span style="background:#f87171"></span>201+ (Dirty)</div>
             </div>
+            <div id="status" style="font-weight: bold; margin-top: 10px;">Safe</div>
         </div>
+
         <div class="card">
-            <h2>Water Temp</h2>
+            <h2>Temperature</h2>
             <div class="value" id="waterTemp">--</div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>23 – 30 °C (Safe)</div>
-                <div><span style="background:#facc15"></span>Warning (21-22 / 31-32)</div>
-                <div><span style="background:#f87171"></span>Critical (&lt;21 / &gt;32)</div>
+                <div><span style="background:#22c55e"></span>23°C – 30°C (Safe)</div>
+                <div><span style="background:#f87171"></span>Danger Range</div>
             </div>
+            <div style="margin-top: 10px; font-size: 0.9rem; color: #6b7280;">Air: <span id="airTemp">--</span></div>
         </div>
-        <div class="card"><h2>Air Temp</h2><div class="value" id="airTemp">--</div></div>
-        <div class="card"><h2>Water Quality</h2><div class="value" id="status">--</div></div>
-        
+
         <div class="card">
-            <h2>Ammonia Status</h2>
-            <div class="value" id="ammoniaStatus">--</div>
-            <div style="font-size: 0.9rem; color: #6b7280; margin-top: -5px;">Raw Value: <span id="ammoniaRaw" style="font-weight: bold;">--</span></div>
+            <h2>Ammonia Level</h2>
+            <div id="ammoniaStatus" style="font-size: 1.5rem; font-weight: bold; color: #22c55e;">NORMAL</div>
+            <div style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">Raw Value: <span id="ammoniaRaw">--</span></div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>900 below (Good)</div>
-                <div><span style="background:#facc15"></span>901 – 920 (Warning)</div>
-                <div><span style="background:#f87171"></span>921 above (High)</div>
+                <div><span style="background:#22c55e"></span>Normal (&lt;900)</div>
+                <div><span style="background:#facc15"></span>Warning (901-920)</div>
+                <div><span style="background:#f87171"></span>High (&gt;920)</div>
             </div>
         </div>
-    </div>
-
-    <div class="averages-section">
-        <h3>Daily Sensor Averages</h3>
-        <input type="date" id="avgCalendar" style="margin-top:10px; padding:8px; border-radius:6px; border:1px solid #d1d5db;">
-        <div class="avg-grid">
-            <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
-            <div class="avg-item"><div class="avg-label">W-Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">A-Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
-            <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
-        </div>
-    </div>
-
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-top: 20px;">
-        <div class="card">
-            <h2>Water Change Schedule</h2>
-            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">TIME:</label>
-            <input type="time" id="wcTime" class="wc-input" value="00:00">
-            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">DURATION (MINUTES):</label>
-            <input type="number" id="wcDuration" class="wc-input" value="5">
-            <div id="wcStatus" style="margin-top: 15px; font-weight: bold; color: #6b7280; font-size: 14px;">Status: IDLE</div>
-        </div>
 
         <div class="card">
-            <h2>Feeding Schedule</h2>
-            <label style="font-size: 12px; font-weight: bold; margin-top: 10px; display: block;">TIMES PER DAY:</label>
-            <select id="feedFrequency" class="wc-input" style="margin-bottom: 15px;">
-                <option value="1">1x a day</option>
-                <option value="2">2x a day</option>
-                <option value="3" selected>3x a day</option>
-            </select>
+            <h2>Automated Water Change</h2>
+            <div style="margin-bottom: 10px;">
+                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">START TIME:</label>
+                <input type="time" id="wcTime" class="wc-input" value="08:00">
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">DURATION (MINUTES):</label>
+                <input type="number" id="wcDuration" class="wc-input" value="10" min="1" max="60">
+            </div>
+            <div style="margin-bottom: 10px;">
+                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">FREQUENCY:</label>
+                <select id="wcFrequency" class="wc-select">
+                    <option value="1">Every Day</option>
+                    <option value="2">Every 2 Days</option>
+                    <option value="3">Every 3 Days</option>
+                    <option value="4">Every 4 Days</option>
+                    <option value="5">Every 5 Days</option>
+                    <option value="6">Every 6 Days</option>
+                    <option value="7">Every Week</option>
+                </select>
+            </div>
+            <div id="wcStatus" style="font-weight: bold; color: #6b7280; font-size: 0.9rem;">Status: IDLE</div>
+        </div>
+
+        <div class="card">
+            <h2>Automated Fish Feeding</h2>
+            <div style="margin-bottom: 10px;">
+                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">FEEDING FREQUENCY:</label>
+                <select id="feedFrequency" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+                    <option value="1">1x Daily</option>
+                    <option value="2">2x Daily</option>
+                    <option value="3" selected>3x Daily</option>
+                </select>
+            </div>
             <div id="timeInputsContainer"></div>
         </div>
     </div>
 
+    <div class="averages-section">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-size: 1.1rem; color: #111827;">DAILY AVERAGES</h2>
+            <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+        </div>
+        <div class="avg-grid">
+            <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
+            <div class="avg-item"><div class="avg-label">W-Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">A-Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">NTU</div><div class="avg-val" id="avgNtu">--</div></div>
+            <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
+        </div>
+    </div>
+
     <div class="logs-section">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-            <h3 id="logsTitle">Activity Logs</h3>
-            <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="date" id="logCalendar" style="padding: 6px; border-radius: 6px; border: 1px solid #d1d5db;">
-                <button id="viewLogsBtn" style="padding: 8px 15px; border-radius: 8px; border: none; background: #3b82f6; color: white; cursor: pointer; font-weight: 500;">View All Logs</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h2 id="logsTitle" style="font-size: 1.1rem; color: #111827;">System Logs</h2>
+            <div style="display: flex; gap: 10px;">
+                <input type="date" id="logCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+                <button id="viewLogsBtn" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">View All Logs</button>
             </div>
         </div>
-        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; color: #374151;"></div>
+        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.6;"></div>
     </div>
 
     <button id="logoutBtn">Logout System</button>
