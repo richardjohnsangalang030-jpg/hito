@@ -140,7 +140,7 @@
             const settings = {
                 wcTime: document.getElementById("wcTime").value,
                 wcDuration: document.getElementById("wcDuration").value,
-                wcFrequency: document.getElementById("wcFrequency").value, // NEW
+                wcFrequency: document.getElementById("wcFrequency").value,
                 feedFrequency: document.getElementById("feedFrequency").value,
                 feedTimes: Array.from(document.querySelectorAll(".time-input")).map(input => input.value),
                 feedTriggers: Array.from(document.querySelectorAll(".trigger-input")).map(input => input.value)
@@ -154,7 +154,7 @@
                 const settings = JSON.parse(saved);
                 document.getElementById("wcTime").value = settings.wcTime;
                 document.getElementById("wcDuration").value = settings.wcDuration;
-                if(settings.wcFrequency) document.getElementById("wcFrequency").value = settings.wcFrequency; // NEW
+                if(settings.wcFrequency) document.getElementById("wcFrequency").value = settings.wcFrequency;
                 document.getElementById("feedFrequency").value = settings.feedFrequency;
                 updateInputsUI(settings.feedFrequency);
                 
@@ -260,12 +260,9 @@
                 const scheduledTime = document.getElementById("wcTime").value;
                 const durationMin = parseInt(document.getElementById("wcDuration").value);
                 const frequency = parseInt(document.getElementById("wcFrequency").value);
-
-                // Logic for Frequency: Days since epoch
                 const dayCount = Math.floor(now.getTime() / (1000 * 60 * 60 * 24));
                 
                 if (currentTime === scheduledTime && !isWCActive) {
-                    // If dayCount is divisible by frequency, it's a scheduled day
                     if (dayCount % frequency === 0) {
                         executeWaterChange(durationMin);
                     }
@@ -277,7 +274,6 @@
                 const wcStatus = document.getElementById("wcStatus");
                 wcStatus.innerText = "Status: ONGOING";
                 wcStatus.style.color = "#f59e0b";
-
                 addLog("WC_Start");
                 set(ref(database, "HitoFarm/Manual/Relay1Toggle"), true);
 
@@ -286,16 +282,12 @@
                 let cancelled = false;
                 
                 while (secondsPassed < totalSeconds) {
-                    if (toggleMode.checked) {
-                        cancelled = true;
-                        break;
-                    }
+                    if (toggleMode.checked) { cancelled = true; break; }
                     await new Promise(r => setTimeout(r, 1000));
                     secondsPassed++;
                 }
 
                 set(ref(database, "HitoFarm/Manual/Relay1Toggle"), false);
-                
                 if (cancelled) {
                     addLog("Auto_Cancel", "Automated Water Change CANCELLED by manual override");
                     wcStatus.innerText = "Status: CANCELLED";
@@ -305,7 +297,6 @@
                     wcStatus.innerText = "Status: DONE";
                     wcStatus.style.color = "#22c55e";
                 }
-
                 setTimeout(() => {
                     isWCActive = false;
                     wcStatus.innerText = "Status: IDLE";
@@ -330,20 +321,15 @@
             async function startAutomatedFeed(count) {
                 isFeedingExecuting = true;
                 let cancelled = false;
-                
                 for (let i = 0; i < count; i++) {
                     if (toggleMode.checked) { cancelled = true; break; }
-                    
                     set(ref(database, "HitoFarm/Manual/Feed"), true);
-                    
                     for(let s=0; s<20; s++) {
                         if (toggleMode.checked) { cancelled = true; break; }
                         await new Promise(r => setTimeout(r, 1000));
                     }
                     if (cancelled) break;
-                    
                     set(ref(database, "HitoFarm/Manual/Feed"), false);
-                    
                     if (i < count - 1) {
                          for(let w=0; w<5; w++) {
                             if (toggleMode.checked) { cancelled = true; break; }
@@ -352,19 +338,12 @@
                          if (cancelled) break;
                     }
                 }
-
                 set(ref(database, "HitoFarm/Manual/Feed"), false);
-
-                if (cancelled) {
-                    addLog("Auto_Cancel", "Automated Feeding CANCELLED by manual override");
-                } else {
-                    addLog("Feed", `Auto (${count}x) done`);
-                }
-                
+                if (cancelled) { addLog("Auto_Cancel", "Automated Feeding CANCELLED by manual override"); }
+                else { addLog("Feed", `Auto (${count}x) done`); }
                 setTimeout(() => { isFeedingExecuting = false; }, 60000);
             }
 
-            /* --- Firebase Listeners --- */
             onValue(ref(database, "HitoFarm/WaterQuality/pH"), snap => {
                 if (snap.exists()) {
                     const val = snap.val().toFixed(2); currentPH = val; phEl.innerText = val;
@@ -402,20 +381,10 @@
 
             onValue(ref(database, "HitoFarm/WaterQuality/AmmoniaRaw"), snap => {
                 if (snap.exists()) {
-                    const val = snap.val();
-                    currentAmmonia = val;
-                    ammoniaRawEl.innerText = val;
-                    
-                    if (val <= 900) {
-                        ammoniaStatusEl.innerText = "NORMAL";
-                        ammoniaStatusEl.style.color = "#22c55e";
-                    } else if (val >= 901 && val <= 920) {
-                        ammoniaStatusEl.innerText = "WARNING";
-                        ammoniaStatusEl.style.color = "#facc15";
-                    } else {
-                        ammoniaStatusEl.innerText = "HIGH";
-                        ammoniaStatusEl.style.color = "#f87171";
-                    }
+                    const val = snap.val(); currentAmmonia = val; ammoniaRawEl.innerText = val;
+                    if (val <= 900) { ammoniaStatusEl.innerText = "NORMAL"; ammoniaStatusEl.style.color = "#22c55e"; }
+                    else if (val >= 901 && val <= 920) { ammoniaStatusEl.innerText = "WARNING"; ammoniaStatusEl.style.color = "#facc15"; }
+                    else { ammoniaStatusEl.innerText = "HIGH"; ammoniaStatusEl.style.color = "#f87171"; }
                 }
             });
 
@@ -432,22 +401,13 @@
             });
 
             onValue(ref(database, "HitoFarm/Manual/Relay1Toggle"), snap => { 
-                if (snap.exists()) { 
-                    valveStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
-                    valveSwitch.checked = snap.val(); 
-                } 
+                if (snap.exists()) { valveStatusEl.innerText = snap.val() ? "ON" : "OFF"; valveSwitch.checked = snap.val(); } 
             });
             onValue(ref(database, "HitoFarm/Manual/Feed"), snap => { 
-                if (snap.exists()) { 
-                    feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
-                    feedSwitch.checked = snap.val(); 
-                } 
+                if (snap.exists()) { feedStatusEl.innerText = snap.val() ? "ON" : "OFF"; feedSwitch.checked = snap.val(); } 
             });
             onValue(ref(database, "HitoFarm/Manual/Relay3Toggle"), snap => { 
-                if (snap.exists()) { 
-                    heaterStatusEl.innerText = snap.val() ? "ON" : "OFF"; 
-                    heaterSwitch.checked = snap.val(); 
-                } 
+                if (snap.exists()) { heaterStatusEl.innerText = snap.val() ? "ON" : "OFF"; heaterSwitch.checked = snap.val(); } 
             });
 
             async function loadDailyAverages(date) {
@@ -483,7 +443,7 @@
             
             document.getElementById("wcTime").addEventListener("change", saveSettings);
             document.getElementById("wcDuration").addEventListener("input", saveSettings);
-            document.getElementById("wcFrequency").addEventListener("change", saveSettings); // NEW
+            document.getElementById("wcFrequency").addEventListener("change", saveSettings);
             document.getElementById("feedFrequency").addEventListener("change", (e) => { updateInputsUI(e.target.value); saveSettings(); });
             logCalendar.addEventListener("change", async () => { const snap = await get(ref(database, "HitoFarm/Logs")); if (snap.exists()) displayLogs(snap.val()); });
             viewLogsBtn.addEventListener("click", async () => { showAllLogs = !showAllLogs; const snap = await get(ref(database, "HitoFarm/Logs")); displayLogs(snap.exists() ? snap.val() : []); viewLogsBtn.innerText = showAllLogs ? "View Recent Only" : "View All Logs"; });
@@ -591,105 +551,101 @@
             <h2>pH Level</h2>
             <div class="value" id="ph">--</div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>6.00 – 8.00 (Safe)</div>
-                <div><span style="background:#facc15"></span>Warning (5.5-5.9 / 8.1-8.5)</div>
-                <div><span style="background:#f87171"></span>Danger (&lt;5.5 / &gt;8.5)</div>
+                <div><span style="background: #22c55e;"></span> 6.0 – 8.0 (Safe)</div>
+                <div><span style="background: #facc15;"></span> 5.5 – 5.9 / 8.1 – 8.5 (Warning)</div>
+                <div><span style="background: #f87171;"></span> < 5.5 / > 8.5 (Danger)</div>
             </div>
         </div>
 
         <div class="card">
-            <h2>Turbidity (NTU)</h2>
-            <div class="value" id="ntu">--</div>
-            <div class="legend">
-                <div><span style="background:#22c55e"></span>0 – 200 (Safe)</div>
-                <div><span style="background:#f87171"></span>201+ (Dirty)</div>
+            <h2>Water Temperature</h2>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <div class="value" id="waterTemp">-- °C</div>
+                <div style="font-size: 0.9rem; color: #6b7280;">Air: <span id="airTemp" style="font-weight: bold; color: #374151;">-- °C</span></div>
             </div>
-            <div id="status" style="font-weight: bold; margin-top: 10px;">Safe</div>
+            <div class="legend">
+                <div><span style="background: #22c55e;"></span> 23°C – 30°C (Safe)</div>
+                <div><span style="background: #facc15;"></span> 21°C – 22°C / 31°C – 32°C (Warning)</div>
+                <div><span style="background: #f87171;"></span> Danger Range</div>
+            </div>
         </div>
 
         <div class="card">
-            <h2>Temperature</h2>
-            <div class="value" id="waterTemp">--</div>
+            <h2>Water Turbidity</h2>
+            <div class="value" id="ntu">-- NTU</div>
+            <div style="font-weight: bold; margin-top: 5px;">Status: <span id="status">--</span></div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>23°C – 30°C (Safe)</div>
-                <div><span style="background:#f87171"></span>Danger Range</div>
+                <div><span style="background: #22c55e;"></span> 0 – 200 NTU (Safe)</div>
+                <div><span style="background: #f87171;"></span> > 200 NTU (Contaminated)</div>
             </div>
-            <div style="margin-top: 10px; font-size: 0.9rem; color: #6b7280;">Air: <span id="airTemp">--</span></div>
         </div>
 
         <div class="card">
             <h2>Ammonia Level</h2>
-            <div id="ammoniaStatus" style="font-size: 1.5rem; font-weight: bold; color: #22c55e;">NORMAL</div>
-            <div style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">Raw Value: <span id="ammoniaRaw">--</span></div>
+            <div class="value" id="ammoniaStatus">--</div>
+            <div style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">Raw Value: <span id="ammoniaRaw" style="font-weight: bold; color: #374151;">--</span></div>
             <div class="legend">
-                <div><span style="background:#22c55e"></span>Normal (&lt;900)</div>
-                <div><span style="background:#facc15"></span>Warning (901-920)</div>
-                <div><span style="background:#f87171"></span>High (&gt;920)</div>
+                <div><span style="background: #22c55e;"></span> Normal (<= 900)</div>
+                <div><span style="background: #facc15;"></span> Warning (901 - 920)</div>
+                <div><span style="background: #f87171;"></span> High (> 920)</div>
             </div>
         </div>
 
         <div class="card">
             <h2>Automated Water Change</h2>
-            <div style="margin-bottom: 10px;">
-                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">START TIME:</label>
-                <input type="time" id="wcTime" class="wc-input" value="08:00">
-            </div>
-            <div style="margin-bottom: 10px;">
-                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">DURATION (MINUTES):</label>
-                <input type="number" id="wcDuration" class="wc-input" value="10" min="1" max="60">
-            </div>
-            <div style="margin-bottom: 10px;">
-                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">FREQUENCY:</label>
-                <select id="wcFrequency" class="wc-select">
-                    <option value="1">Every Day</option>
-                    <option value="2">Every 2 Days</option>
-                    <option value="3">Every 3 Days</option>
-                    <option value="4">Every 4 Days</option>
-                    <option value="5">Every 5 Days</option>
-                    <option value="6">Every 6 Days</option>
-                    <option value="7">Every Week</option>
-                </select>
-            </div>
-            <div id="wcStatus" style="font-weight: bold; color: #6b7280; font-size: 0.9rem;">Status: IDLE</div>
+            <div id="wcStatus" style="font-weight: bold; color: #6b7280; margin-bottom: 10px;">Status: IDLE</div>
+            <label style="font-size: 12px; font-weight: bold;">START TIME:</label>
+            <input type="time" id="wcTime" class="wc-input" value="08:00">
+            <label style="font-size: 12px; font-weight: bold; margin-top: 8px; display: block;">DURATION (MINS):</label>
+            <input type="number" id="wcDuration" class="wc-input" value="10">
+            <label style="font-size: 12px; font-weight: bold; margin-top: 8px; display: block;">FREQUENCY:</label>
+            <select id="wcFrequency" class="wc-select">
+                <option value="1">Everyday</option>
+                <option value="2">Every 2 Days</option>
+                <option value="3">Every 3 Days</option>
+                <option value="7">Once a Week</option>
+            </select>
         </div>
 
         <div class="card">
-            <h2>Automated Fish Feeding</h2>
-            <div style="margin-bottom: 10px;">
-                <label style="font-size: 12px; font-weight: bold; color: #6b7280;">FEEDING FREQUENCY:</label>
-                <select id="feedFrequency" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
-                    <option value="1">1x Daily</option>
-                    <option value="2">2x Daily</option>
-                    <option value="3" selected>3x Daily</option>
-                </select>
+            <h2>Feeding Schedule</h2>
+            <label style="font-size: 12px; font-weight: bold;">FEEDS PER DAY:</label>
+            <select id="feedFrequency" class="wc-select" style="margin-bottom: 10px;">
+                <option value="1">1x a day</option>
+                <option value="2">2x a day</option>
+                <option value="3" selected>3x a day</option>
+            </select>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: #6b7280; margin-bottom: 5px;">
+                <span>TIME</span>
+                <span>CYCLES</span>
             </div>
             <div id="timeInputsContainer"></div>
         </div>
-    </div>
 
-    <div class="averages-section">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h2 style="font-size: 1.1rem; color: #111827;">DAILY AVERAGES</h2>
-            <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
-        </div>
-        <div class="avg-grid">
-            <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
-            <div class="avg-item"><div class="avg-label">W-Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">A-Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
-            <div class="avg-item"><div class="avg-label">NTU</div><div class="avg-val" id="avgNtu">--</div></div>
-            <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
-        </div>
-    </div>
-
-    <div class="logs-section">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h2 id="logsTitle" style="font-size: 1.1rem; color: #111827;">System Logs</h2>
-            <div style="display: flex; gap: 10px;">
-                <input type="date" id="logCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
-                <button id="viewLogsBtn" style="background: #3b82f6; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">View All Logs</button>
+        <div class="averages-section">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="font-size: 1rem; color: #6b7280;">DAILY HISTORICAL AVERAGES</h2>
+                <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+            </div>
+            <div class="avg-grid">
+                <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
+                <div class="avg-item"><div class="avg-label">Water Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
+                <div class="avg-item"><div class="avg-label">Air Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
+                <div class="avg-item"><div class="avg-label">Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
+                <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
             </div>
         </div>
-        <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.6;"></div>
+
+        <div class="logs-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 id="logsTitle" style="font-size: 1rem; color: #6b7280;">SYSTEM LOGS</h2>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="date" id="logCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+                    <button id="viewLogsBtn" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px;">View All Logs</button>
+                </div>
+            </div>
+            <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.5;"></div>
+        </div>
     </div>
 
     <button id="logoutBtn">Logout System</button>
