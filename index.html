@@ -39,6 +39,10 @@
         const statusEl = document.getElementById("status");
         const ammoniaStatusEl = document.getElementById("ammoniaStatus");
         const ammoniaRawEl = document.getElementById("ammoniaRaw");
+        
+        // Feed Status Card Elements
+        const distanceEl = document.getElementById("distanceCM");
+        const distanceStatusEl = document.getElementById("distanceStatus");
 
         const valveStatusEl = document.getElementById("valveStatus");
         const valveSwitch = document.getElementById("valveSwitch");
@@ -388,6 +392,24 @@
                 }
             });
 
+            // NEW: Feed Distance Logic
+            onValue(ref(database, "HitoFarm/WaterQuality/DistanceCM"), snap => {
+                if (snap.exists()) {
+                    const val = snap.val();
+                    distanceEl.innerText = val.toFixed(3);
+                    if (val >= 0 && val <= 23) {
+                        distanceStatusEl.innerText = "NORMAL";
+                        distanceStatusEl.style.color = "#22c55e";
+                    } else if (val > 23 && val <= 25) {
+                        distanceStatusEl.innerText = "WARNING";
+                        distanceStatusEl.style.color = "#facc15";
+                    } else {
+                        distanceStatusEl.innerText = "NO FEEDS";
+                        distanceStatusEl.style.color = "#f87171";
+                    }
+                }
+            });
+
             onValue(ref(database, "HitoFarm/ControlMode"), snap => {
                 if (snap.exists()) {
                     const mode = snap.val(); 
@@ -530,7 +552,7 @@
 
     <div class="manual-controls">
         <div class="manual-control-card">
-            <h3>WATER VALVE</h3>
+            <h3>WATER PUMP</h3>
             <div style="font-weight: bold; margin-bottom: 5px;" id="valveStatus">OFF</div>
             <label class="switch"><input type="checkbox" id="valveSwitch"><span class="slider"></span></label>
         </div>
@@ -547,6 +569,19 @@
     </div>
 
     <div class="container" style="margin-top: 20px;">
+        <div class="card">
+            <h2>Feed Status</h2>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <div class="value" id="distanceStatus">--</div>
+                <div style="font-size: 0.9rem; color: #6b7280;"><span id="distanceCM">--</span> cm</div>
+            </div>
+            <div class="legend">
+                <div><span style="background: #22c55e;"></span> 0 – 23 (Normal)</div>
+                <div><span style="background: #facc15;"></span> 23.1 – 25 (Warning)</div>
+                <div><span style="background: #f87171;"></span> 25.1+ (No Feeds)</div>
+            </div>
+        </div>
+
         <div class="card">
             <h2>pH Level</h2>
             <div class="value" id="ph">--</div>
@@ -565,15 +600,15 @@
             </div>
             <div class="legend">
                 <div><span style="background: #22c55e;"></span> 23°C – 30°C (Safe)</div>
-                <div><span style="background: #facc15;"></span> 21°C – 22°C / 31°C – 32°C (Warning)</div>
-                <div><span style="background: #f87171;"></span> Danger Range</div>
+                <div><span style="background: #facc15;"></span> 21–22°C / 31–32°C (Warning)</div>
+                <div><span style="background: #f87171;"></span> < 21°C / > 32°C (Danger)</div>
             </div>
         </div>
 
         <div class="card">
-            <h2>Water Turbidity</h2>
+            <h2>Water Clarity</h2>
             <div class="value" id="ntu">-- NTU</div>
-            <div style="font-weight: bold; margin-top: 5px;">Status: <span id="status">--</span></div>
+            <div id="status" style="font-weight: bold; margin-top: 5px;">--</div>
             <div class="legend">
                 <div><span style="background: #22c55e;"></span> 0 – 200 NTU (Safe)</div>
                 <div><span style="background: #f87171;"></span> > 200 NTU (Contaminated)</div>
@@ -583,69 +618,80 @@
         <div class="card">
             <h2>Ammonia Level</h2>
             <div class="value" id="ammoniaStatus">--</div>
-            <div style="font-size: 0.9rem; color: #6b7280; margin-top: 5px;">Raw Value: <span id="ammoniaRaw" style="font-weight: bold; color: #374151;">--</span></div>
+            <div style="font-size: 0.9rem; color: #6b7280;">Raw Value: <span id="ammoniaRaw" style="font-weight: bold; color: #374151;">--</span></div>
             <div class="legend">
-                <div><span style="background: #22c55e;"></span> Normal (<= 900)</div>
-                <div><span style="background: #facc15;"></span> Warning (901 - 920)</div>
-                <div><span style="background: #f87171;"></span> High (> 920)</div>
+                <div><span style="background: #22c55e;"></span> <= 900 (Normal)</div>
+                <div><span style="background: #facc15;"></span> 901 – 920 (Warning)</div>
+                <div><span style="background: #f87171;"></span> > 920 (High)</div>
             </div>
         </div>
+    </div>
 
+    <div class="container" style="margin-top: 20px;">
         <div class="card">
-            <h2>Automated Water Change</h2>
-            <div id="wcStatus" style="font-weight: bold; color: #6b7280; margin-bottom: 10px;">Status: IDLE</div>
-            <label style="font-size: 12px; font-weight: bold;">START TIME:</label>
-            <input type="time" id="wcTime" class="wc-input" value="08:00">
-            <label style="font-size: 12px; font-weight: bold; margin-top: 8px; display: block;">DURATION (MINS):</label>
-            <input type="number" id="wcDuration" class="wc-input" value="10">
-            <label style="font-size: 12px; font-weight: bold; margin-top: 8px; display: block;">FREQUENCY:</label>
-            <select id="wcFrequency" class="wc-select">
-                <option value="1">Everyday</option>
-                <option value="2">Every 2 Days</option>
-                <option value="3">Every 3 Days</option>
-                <option value="7">Once a Week</option>
-            </select>
-        </div>
-
-        <div class="card">
-            <h2>Feeding Schedule</h2>
-            <label style="font-size: 12px; font-weight: bold;">FEEDS PER DAY:</label>
-            <select id="feedFrequency" class="wc-select" style="margin-bottom: 10px;">
-                <option value="1">1x a day</option>
-                <option value="2">2x a day</option>
-                <option value="3" selected>3x a day</option>
-            </select>
-            <div style="display: flex; justify-content: space-between; font-size: 11px; font-weight: bold; color: #6b7280; margin-bottom: 5px;">
-                <span>TIME</span>
-                <span>CYCLES</span>
-            </div>
-            <div id="timeInputsContainer"></div>
-        </div>
-
-        <div class="averages-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 style="font-size: 1rem; color: #6b7280;">DAILY HISTORICAL AVERAGES</h2>
-                <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
-            </div>
-            <div class="avg-grid">
-                <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
-                <div class="avg-item"><div class="avg-label">Water Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
-                <div class="avg-item"><div class="avg-label">Air Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
-                <div class="avg-item"><div class="avg-label">Turbidity</div><div class="avg-val" id="avgNtu">--</div></div>
-                <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
-            </div>
-        </div>
-
-        <div class="logs-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h2 id="logsTitle" style="font-size: 1rem; color: #6b7280;">SYSTEM LOGS</h2>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="date" id="logCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
-                    <button id="viewLogsBtn" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px;">View All Logs</button>
+            <h2>Auto Water Change</h2>
+            <div id="wcStatus" style="font-weight:bold; margin-bottom:10px; color:#6b7280;">Status: IDLE</div>
+            <div style="display:grid; gap:10px;">
+                <div>
+                    <label style="font-size:12px;">Start Time:</label>
+                    <input type="time" id="wcTime" class="wc-input" value="08:00">
+                </div>
+                <div>
+                    <label style="font-size:12px;">Duration (Mins):</label>
+                    <input type="number" id="wcDuration" class="wc-input" value="5" min="1">
+                </div>
+                <div>
+                    <label style="font-size:12px;">Frequency:</label>
+                    <select id="wcFrequency" class="wc-select">
+                        <option value="1">Every Day</option>
+                        <option value="2">Every 2 Days</option>
+                        <option value="3">Every 3 Days</option>
+                        <option value="7">Every Week</option>
+                    </select>
                 </div>
             </div>
-            <div id="logs" style="max-height: 300px; overflow-y: auto; font-size: 13px; line-height: 1.5;"></div>
         </div>
+
+        <div class="card">
+            <h2>Auto Feeding Schedule</h2>
+            <div style="margin-bottom:10px;">
+                <label style="font-size:12px;">Feeds per Day:</label>
+                <select id="feedFrequency" class="wc-select">
+                    <option value="1">1x Daily</option>
+                    <option value="2">2x Daily</option>
+                    <option value="3" selected>3x Daily</option>
+                    <option value="4">4x Daily</option>
+                    <option value="5">5x Daily</option>
+                </select>
+            </div>
+            <div id="timeInputsContainer"></div>
+            <div style="margin-top:10px; font-size:11px; color:#6b7280; font-style:italic;">Note: Each feed cycle runs for 20 seconds.</div>
+        </div>
+    </div>
+
+    <div class="averages-section">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="font-size: 1.1rem; color: #111827;">DAILY AVERAGES</h2>
+            <input type="date" id="avgCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+        </div>
+        <div class="avg-grid">
+            <div class="avg-item"><div class="avg-label">pH</div><div class="avg-val" id="avgPh">--</div></div>
+            <div class="avg-item"><div class="avg-label">Water Temp</div><div class="avg-val" id="avgWaterTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">Air Temp</div><div class="avg-val" id="avgAirTemp">--</div></div>
+            <div class="avg-item"><div class="avg-label">Clarity</div><div class="avg-val" id="avgNtu">--</div></div>
+            <div class="avg-item"><div class="avg-label">Ammonia</div><div class="avg-val" id="avgAmmonia">--</div></div>
+        </div>
+    </div>
+
+    <div class="logs-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h2 id="logsTitle">System Logs</h2>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="date" id="logCalendar" style="padding: 5px; border-radius: 6px; border: 1px solid #d1d5db;">
+                <button id="viewLogsBtn" style="padding: 6px 12px; border-radius: 6px; border: 1px solid #3b82f6; background: none; color: #3b82f6; cursor: pointer; font-size: 13px;">View All Logs</button>
+            </div>
+        </div>
+        <div id="logs" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px;"></div>
     </div>
 
     <button id="logoutBtn">Logout System</button>
